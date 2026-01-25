@@ -1,0 +1,26 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Jobs and Sessions Monitoring</title>
+</head>
+<body>
+    <h1>Jobs and Sessions Monitoring</h1>
+
+    <h2>Active Jobs</h2>
+    <ul>
+        {% for job_id, job_info in jobs.items %}
+            <li>Job ID: {{ job_id }} - Info: {{ job_info }}</li>
+        {% endfor %}
+    </ul>
+
+    <h2>Active Sessions</h2>
+    <ul>
+        {% for session_id, session_info in sessions.items %}
+            <li>Session ID: {{ session_id }} - Info: {{ session_info }}</li>
+        {% endfor %}
+    </ul>
+
+    <br>
+    <a href="{% url 'home' %}">Back to Dashboard</a>
+</body>
+</html>

@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Beacons Management</title>
+    <script src="https://ajax.googleapis.com/ajax/libs/jquery/3.5.1/jquery.min.js"></script>
+</head>
+<body>
+    <h1>Beacons Management</h1>
+
+    <h2>Active Beacons</h2>
+    <ul>
+        {% for beacon in active_beacons %}
+            <li>{{ beacon.hostname }} - Last check-in: {{ beacon.last_checkin }} - Status: {{ beacon.status }}</li>
+        {% endfor %}
+    </ul>
+
+    <h2>Assign Task to Beacon</h2>
+    <form id="assign-task-form">
+        <label for="hostname">Hostname:</label>
+        <select id="hostname" name="hostname">
+            {% for beacon in active_beacons %}
+                <option value="{{ beacon.hostname }}">{{ beacon.hostname }}</option>
+            {% endfor %}
+        </select>
+        <br><br>
+
+        <label for="command">Command:</label>
+        <input type="text" id="command" name="command" placeholder="Enter command to run">
+        <br><br>
+
+        <button type="submit">Assign Task</button>
+    </form>
+
+    <script>
+        $('#assign-task-form').on('submit', function(event) {
+            event.preventDefault();
+
+            const hostname = $('#hostname').val();
+            const command = $('#command').val();
+
+            $.ajax({
+                url: "/api/assign_task/",
+                type: "POST",
+                contentType: "application/json",
+                data: JSON.stringify({
+                    hostname: hostname,
+                    command: command
+                }),
+                success: function(response) {
+                    alert("Task assigned successfully: " + response.message);
+                },
+                error: function(xhr, status, error) {
+                    alert("Error assigning task: " + xhr.responseJSON.message);
+                }
+            });
+        });
+    </script>
+
+    <br>
+    <a href="{% url 'home' %}">Back to Dashboard</a>
+</body>
+</html>

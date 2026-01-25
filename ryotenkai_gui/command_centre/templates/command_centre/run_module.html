@@ -1,0 +1,25 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Run Metasploit Module</title>
+</head>
+<body>
+    <h1>Run a Metasploit Module</h1>
+
+    <form method="POST" action="">
+        {% csrf_token %}
+        <label for="module">Module:</label>
+        <input type="text" id="module" name="module" placeholder="e.g., exploit/multi/handler">
+        <br><br>
+
+        <label for="options">Options:</label>
+        <textarea id="options" name="options" rows="5" placeholder="Enter options (e.g., LHOST=127.0.0.1, LPORT=4444)"></textarea>
+        <br><br>
+
+        <button type="submit">Run Module</button>
+    </form>
+
+    <br>
+    <a href="{% url 'home' %}">Back to Dashboard</a>
+</body>
+</html>

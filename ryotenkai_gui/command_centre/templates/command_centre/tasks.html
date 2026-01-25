@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Task List and Outputs</title>
+</head>
+<body>
+    <h1>Task List and Outputs</h1>
+
+    <table border="1">
+        <thead>
+            <tr>
+                <th>Task ID</th>
+                <th>Beacon Hostname</th>
+                <th>Command</th>
+                <th>Status</th>
+                <th>Result/Output</th>
+                <th>Created At</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for task in tasks %}
+                <tr>
+                    <td>{{ task.id }}</td>
+                    <td>{{ task.beacon.hostname }}</td>
+                    <td>{{ task.command }}</td>
+                    <td>{{ task.status }}</td>
+                    <td>{{ task.result|default_if_none:"N/A" }}</td>
+                    <td>{{ task.created_at }}</td>
+                </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+
+    <br>
+    <a href="{% url 'home' %}">Back to Dashboard</a>
+</body>
+</html>

