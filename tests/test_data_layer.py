@@ -81,3 +81,24 @@ def test_run_session_command_reads_output(monkeypatch):
     out = ryotenkai.run_session_command(client, "4", "whoami")
     session.write.assert_called_once_with("whoami\n")
     assert out == "root\n"
+
+
+def test_read_console_timeout_breaks(monkeypatch):
+    monkeypatch.setattr(ryotenkai.time, "sleep", lambda *_: None)
+    console = MagicMock()
+    console.read.side_effect = [
+        {"data": "partial\n", "busy": True},
+        {"data": "more\n", "busy": True},
+    ]
+    out = ryotenkai._read_console(console, timeout=0, interval=0)
+    assert out == "partial\n"
+    assert console.read.call_count == 1
+
+
+def test_read_session_timeout_breaks(monkeypatch):
+    monkeypatch.setattr(ryotenkai.time, "sleep", lambda *_: None)
+    session = MagicMock()
+    session.read.side_effect = ["chunk\n", "chunk2\n"]
+    out = ryotenkai._read_session(session, timeout=0, interval=0, quiet_rounds=5)
+    assert out == "chunk\n"
+    assert session.read.call_count == 1

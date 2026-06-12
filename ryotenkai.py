@@ -83,7 +83,12 @@ def parse_arguments(config):
 
 # Core functions
 def _read_console(console, timeout=CONSOLE_TIMEOUT, interval=POLL_INTERVAL):
-    """Read a console, accumulating output until it is no longer busy or timeout."""
+    """Read a console, accumulating output until it is no longer busy or timeout.
+
+    Settles for one interval first: msfrpc may report not-busy on the first read
+    before the command's output has started, which would truncate the result.
+    """
+    time.sleep(interval)
     deadline = time.monotonic() + timeout
     chunks = []
     while True:
@@ -99,7 +104,12 @@ def _read_console(console, timeout=CONSOLE_TIMEOUT, interval=POLL_INTERVAL):
 
 def _read_session(session, timeout=SESSION_TIMEOUT, interval=POLL_INTERVAL,
                   quiet_rounds=SESSION_QUIET_ROUNDS):
-    """Read a session, stopping after output goes quiet for `quiet_rounds` polls."""
+    """Read a session, stopping after output goes quiet for `quiet_rounds` polls.
+
+    Settles for one interval first so a slow session does not immediately hit
+    the quiet-round limit and return empty before output arrives.
+    """
+    time.sleep(interval)
     deadline = time.monotonic() + timeout
     chunks = []
     quiet = 0
