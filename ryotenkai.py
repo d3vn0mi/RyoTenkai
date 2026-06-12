@@ -307,9 +307,6 @@ def format_exploit_result(result):
 class RtkConsole:
     """Interactive msfconsole-style REPL over a persistent RPC client."""
 
-    HANDLERS = ("jobs", "sessions", "use", "set", "unset", "options", "run",
-                "exploit", "back", "generate", "connect", "help", "?")
-
     def __init__(self, client, conn_info=None):
         self.client = client
         self.conn_info = conn_info or {}
@@ -367,6 +364,7 @@ class RtkConsole:
         except MsfRpcError as e:
             return (f"[!] RPC error: {e}", True, None)
         except Exception as e:
+            logging.debug("Unhandled error in dispatch", exc_info=True)
             return (f"[!] error: {e}", True, None)
 
     # --- handlers (return a string) ---

