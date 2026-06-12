@@ -524,9 +524,10 @@ class RtkConsole:
                 print(output)
             if action and action[0] == "interact":
                 sid = action[1]
+                session_prompt = PromptSession()
                 self.interact_session(
                     sid,
-                    read_line=lambda: session.prompt(f"session {sid} > "),
+                    read_line=lambda: session_prompt.prompt(f"session {sid} > "),
                     write_out=print,
                 )
             if not keep_going:
