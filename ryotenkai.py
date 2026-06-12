@@ -8,6 +8,9 @@ import shlex
 import os
 from pymetasploit3.msfrpc import MsfRpcClient, MsfRpcError
 import json
+from prompt_toolkit import PromptSession
+from prompt_toolkit.completion import NestedCompleter
+from prompt_toolkit.history import FileHistory
 
 
 # Polling configuration for console/session reads
@@ -15,6 +18,9 @@ POLL_INTERVAL = 0.5
 CONSOLE_TIMEOUT = 15
 SESSION_TIMEOUT = 10
 SESSION_QUIET_ROUNDS = 2
+
+HISTORY_PATH = os.path.expanduser("~/.rtk_history")
+BANNER = "RyoTenkai interactive console. Type 'help' for commands, 'exit' to quit."
 
 
 # Load configuration from config.ini
@@ -78,6 +84,13 @@ def parse_arguments(config):
     rpc_parser.add_argument('--rpc-password', help='Password for the RPC server.', default='msfrpc')
     rpc_parser.add_argument('--rpc-port', help='Port for the RPC server.', type=int, default=55552)
     rpc_parser.add_argument('--rpc-ssl', action='store_true',default=False, help='Use SSL for RPC connection.')
+
+    # Interactive REPL
+    interactive_parser = subparsers.add_parser('interactive', help='Launch the interactive console.')
+    interactive_parser.add_argument('--rpc-password', default=config.get('rpc_password', 'msfrpc'))
+    interactive_parser.add_argument('--rpc-server', default=config.get('rpc_server', '127.0.0.1'))
+    interactive_parser.add_argument('--rpc-port', type=int, default=int(config.get('rpc_port', 55552)))
+    interactive_parser.add_argument('--rpc-ssl', action='store_true')
 
 
     return parser.parse_args()
@@ -304,6 +317,25 @@ def format_exploit_result(result):
     return result.get("raw_output", "") or "[*] module started"
 
 
+def build_completer():
+    return NestedCompleter.from_nested_dict({
+        "use": None,
+        "set": {"output": {"json": None, "table": None}},
+        "unset": None,
+        "options": None,
+        "run": None,
+        "exploit": None,
+        "back": None,
+        "jobs": {"-k": None},
+        "sessions": {"-i": None},
+        "generate": None,
+        "connect": None,
+        "help": None,
+        "exit": None,
+        "quit": None,
+    })
+
+
 class RtkConsole:
     """Interactive msfconsole-style REPL over a persistent RPC client."""
 
@@ -475,45 +507,76 @@ class RtkConsole:
                 continue
             write_out(run_session_command(self.client, session_id, line))
 
+    def cmdloop(self, session=None):
+        """Run the interactive loop using prompt_toolkit."""
+        session = session or PromptSession(history=FileHistory(HISTORY_PATH),
+                                           completer=build_completer())
+        print(BANNER)
+        while True:
+            try:
+                line = session.prompt(self.prompt_str())
+            except EOFError:
+                break
+            except KeyboardInterrupt:
+                continue
+            output, keep_going, action = self.dispatch(line)
+            if output:
+                print(output)
+            if action and action[0] == "interact":
+                sid = action[1]
+                self.interact_session(
+                    sid,
+                    read_line=lambda: session.prompt(f"session {sid} > "),
+                    write_out=print,
+                )
+            if not keep_going:
+                break
+
+
+def _launch_repl(args, config):
+    rpc_password = getattr(args, "rpc_password", config.get("rpc_password", "msfrpc"))
+    rpc_server = getattr(args, "rpc_server", config.get("rpc_server", "127.0.0.1"))
+    rpc_port = int(getattr(args, "rpc_port", config.get("rpc_port", 55552)))
+    rpc_ssl = getattr(args, "rpc_ssl", False)
+    try:
+        client = make_client(rpc_password, rpc_server, rpc_port, rpc_ssl)
+    except Exception as e:
+        print(json.dumps({"status": "error", "message": f"RPC connect failed: {e}"}))
+        return
+    conn_info = {"rpc_server": rpc_server, "rpc_port": rpc_port, "rpc_ssl": rpc_ssl}
+    RtkConsole(client, conn_info).cmdloop()
+
 
 if __name__ == "__main__":
-    logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
-
-    # Load configuration
-    config_file = 'config.ini'
-    config = load_config(config_file, 'default')
-
-    # Parse arguments with config overrides
+    logging.basicConfig(level=logging.INFO,
+                        format="%(asctime)s - %(levelname)s - %(message)s")
+    config = load_config("config.ini", "default")
     args = parse_arguments(config)
 
-    if args.command == 'start_rpc':
-        start_rpc_server(args.rpc_password, args.rpc_port, args.rpc_ssl, args.rpc_user, args.rpc_server)
+    if args.command in (None, "interactive"):
+        _launch_repl(args, config)
 
-    else:
+    elif args.command == "start_rpc":
+        start_rpc_server(args.rpc_password, args.rpc_port, args.rpc_ssl,
+                         args.rpc_user, args.rpc_server)
 
-        if args.command == 'run_module':
-            client = MsfRpcClient(args.rpc_password, server=args.rpc_server, port=args.rpc_port, ssl=args.rpc_ssl)
+    elif args.command == "run_module":
+        client = make_client(args.rpc_password, args.rpc_server, args.rpc_port, args.rpc_ssl)
+        options = parse_options(args.option)
+        print(json.dumps(run_exploit(client, args.module, options, args.regex), indent=4))
 
-            options = {}
-            for opt in args.option:
-                key, value = opt.split(' ', 1)
-                options[key.strip()] = value.strip()
-            run_exploit(client, args.module, options, args.regex)
+    elif args.command == "get_jobs":
+        client = make_client(args.rpc_password, args.rpc_server, args.rpc_port, args.rpc_ssl)
+        print(json.dumps(get_jobs(client)))
 
-        elif args.command == 'get_jobs':
-            client = MsfRpcClient(args.rpc_password, server=args.rpc_server, port=args.rpc_port, ssl=args.rpc_ssl)
+    elif args.command == "get_sessions":
+        client = make_client(args.rpc_password, args.rpc_server, args.rpc_port, args.rpc_ssl)
+        print(json.dumps(get_sessions(client)))
 
-            get_jobs(client)
+    elif args.command == "run_command":
+        client = make_client(args.rpc_password, args.rpc_server, args.rpc_port, args.rpc_ssl)
+        print(json.dumps(access_session(client, args.session_id, args.commands), indent=4))
 
-        elif args.command == 'get_sessions':
-            client = MsfRpcClient(args.rpc_password, server=args.rpc_server, port=args.rpc_port, ssl=args.rpc_ssl)
-
-            get_sessions(client)
-
-        elif args.command == 'run_command':
-            client = MsfRpcClient(args.rpc_password, server=args.rpc_server, port=args.rpc_port, ssl=args.rpc_ssl)
-
-            access_session(client, args.session_id, args.commands)
-
-        elif args.command == 'generate_payload':
-            generate_payload(args.format, args.payload, args.lhost, args.lport, args.output_file)
+    elif args.command == "generate_payload":
+        print(json.dumps(generate_payload(args.format, args.payload, args.lhost,
+                                           args.lport, args.output_file), indent=4))
