@@ -236,37 +236,33 @@ def access_session(client, session_id, command_sequence):
 
 
 
-# Functionality 5: Generate a payload with msfvenom
-def generate_payload(format, payload, lhost, lport, output_file):
-    try:
-        command = ['msfvenom', '-p', payload, f'LHOST={lhost}', f'LPORT={lport}', '-f', format, '-o', output_file]
-        logging.info(f"Running msfvenom: {' '.join(command)}")
-        subprocess.run(command, check=True)
-        logging.info(f"Payload saved to {output_file}")
+def parse_options(option_args):
+    """Parse --option values. Accept OPTION=VALUE (preferred) or 'OPTION VALUE'."""
+    options = {}
+    for opt in option_args or []:
+        if "=" in opt:
+            key, value = opt.split("=", 1)
+        else:
+            key, value = opt.split(" ", 1)
+        options[key.strip()] = value.strip()
+    return options
 
-        # Output success message as JSON
-        output = {
+
+# Functionality 5: Generate a payload with msfvenom
+def generate_payload(fmt, payload, lhost, lport, output_file):
+    """Generate a payload with msfvenom; return a structured result."""
+    command = ["msfvenom", "-p", payload, f"LHOST={lhost}", f"LPORT={lport}",
+               "-f", fmt, "-o", output_file]
+    try:
+        subprocess.run(command, check=True)
+        return {
             "status": "success",
             "message": f"Payload saved to {output_file}",
-            "details": {
-                "format": format,
-                "payload": payload,
-                "lhost": lhost,
-                "lport": lport,
-                "output_file": output_file
-            }
+            "details": {"format": fmt, "payload": payload, "lhost": lhost,
+                        "lport": lport, "output_file": output_file},
         }
-        print(json.dumps(output, indent=4))
-
     except subprocess.CalledProcessError as e:
-        logging.error(f"msfvenom error: {e}")
-
-        # Output error message as JSON
-        error_output = {
-            "status": "error",
-            "message": f"Failed to generate payload: {str(e)}"
-        }
-        print(json.dumps(error_output, indent=4))
+        return {"status": "error", "message": f"Failed to generate payload: {str(e)}"}
 
         
         

