@@ -455,6 +455,26 @@ class RtkConsole:
             "  exit | quit                  leave the console"
         )
 
+    def interact_session(self, session_id, read_line, write_out):
+        """Loop reading lines and running them in a session. Exits on
+        'background'/'exit'/'quit'/'back', EOF, or KeyboardInterrupt. The
+        session is left alive in the background."""
+        write_out(f"[*] Interacting with session {session_id}. "
+                  f"'background' or Ctrl-D to return.")
+        while True:
+            try:
+                line = read_line()
+            except (EOFError, KeyboardInterrupt):
+                break
+            if line is None:
+                break
+            line = line.strip()
+            if line in ("background", "exit", "quit", "back"):
+                break
+            if not line:
+                continue
+            write_out(run_session_command(self.client, session_id, line))
+
 
 if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')

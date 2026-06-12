@@ -111,3 +111,29 @@ def test_set_output_invalid(console):
     out, keep, action = console.dispatch("set output xml")
     assert "json or table" in out
     assert console.output_mode == "table"
+
+
+def test_interact_session_runs_commands(console, monkeypatch):
+    sent = []
+    monkeypatch.setattr(ryotenkai, "run_session_command",
+                        lambda client, sid, cmd: sent.append((sid, cmd)) or f"out:{cmd}")
+    inputs = iter(["whoami", "id", "background"])
+    written = []
+
+    def read_line():
+        return next(inputs)
+
+    console.interact_session("4", read_line=read_line, write_out=written.append)
+    assert sent == [("4", "whoami"), ("4", "id")]
+    assert any("out:whoami" in w for w in written)
+
+
+def test_interact_session_exits_on_eof(console, monkeypatch):
+    monkeypatch.setattr(ryotenkai, "run_session_command",
+                        lambda *a, **k: "x")
+
+    def read_line():
+        raise EOFError
+
+    # Should return without raising.
+    console.interact_session("4", read_line=read_line, write_out=lambda *_: None)
