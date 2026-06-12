@@ -264,8 +264,44 @@ def generate_payload(fmt, payload, lhost, lport, output_file):
     except subprocess.CalledProcessError as e:
         return {"status": "error", "message": f"Failed to generate payload: {str(e)}"}
 
-        
-        
+
+# Presentation layer: aligned-table rendering and per-kind formatters
+def render_table(headers, rows):
+    """Render an aligned text table. Returns '(none)' for empty rows."""
+    if not rows:
+        return "(none)"
+    str_rows = [[str(c) for c in row] for row in rows]
+    cols = list(zip(*([headers] + str_rows)))
+    widths = [max(len(c) for c in col) for col in cols]
+
+    def fmt(row):
+        return "  ".join(c.ljust(w) for c, w in zip(row, widths))
+
+    lines = [fmt(headers), "  ".join("-" * w for w in widths)]
+    lines += [fmt(row) for row in str_rows]
+    return "\n".join(lines)
+
+
+def format_jobs(jobs):
+    rows = [[jid, name] for jid, name in (jobs or {}).items()]
+    return render_table(["Job ID", "Module"], rows)
+
+
+def format_sessions(sessions):
+    rows = []
+    for sid, info in (sessions or {}).items():
+        info = info or {}
+        rows.append([sid, info.get("type", ""), info.get("tunnel_peer", ""),
+                     info.get("info", "")])
+    return render_table(["ID", "Type", "Peer", "Info"], rows)
+
+
+def format_exploit_result(result):
+    if result.get("status") == "error":
+        return f"[!] {result.get('message')}"
+    return result.get("raw_output", "") or "[*] module started"
+
+
 if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
