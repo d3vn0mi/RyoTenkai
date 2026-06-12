@@ -4,6 +4,8 @@ import re
 import time
 import logging
 import subprocess
+import shlex
+import os
 from pymetasploit3.msfrpc import MsfRpcClient, MsfRpcError
 import json
 
@@ -300,6 +302,160 @@ def format_exploit_result(result):
     if result.get("status") == "error":
         return f"[!] {result.get('message')}"
     return result.get("raw_output", "") or "[*] module started"
+
+
+class RtkConsole:
+    """Interactive msfconsole-style REPL over a persistent RPC client."""
+
+    HANDLERS = ("jobs", "sessions", "use", "set", "unset", "options", "run",
+                "exploit", "back", "generate", "connect", "help", "?")
+
+    def __init__(self, client, conn_info=None):
+        self.client = client
+        self.conn_info = conn_info or {}
+        self.current_module = None
+        self.module_options = {}
+        self.output_mode = "table"
+
+    def prompt_str(self):
+        if self.current_module:
+            return f"rtk ({self.current_module}) > "
+        return "rtk > "
+
+    def _emit(self, data, table_fn):
+        if self.output_mode == "json":
+            return json.dumps(data, indent=4)
+        return table_fn(data)
+
+    def dispatch(self, line):
+        """Parse and execute one command. Returns (output, keep_going, action)."""
+        line = (line or "").strip()
+        if not line:
+            return ("", True, None)
+        try:
+            parts = shlex.split(line)
+        except ValueError as e:
+            return (f"[!] parse error: {e}", True, None)
+        cmd, cmd_args = parts[0], parts[1:]
+
+        if cmd in ("exit", "quit"):
+            return ("", False, None)
+        if cmd == "sessions" and cmd_args and cmd_args[0] == "-i":
+            if len(cmd_args) < 2:
+                return ("[!] usage: sessions -i <id>", True, None)
+            return ("", True, ("interact", cmd_args[1]))
+
+        handler = {
+            "jobs": self.do_jobs,
+            "sessions": self.do_sessions,
+            "use": self.do_use,
+            "set": self.do_set,
+            "unset": self.do_unset,
+            "options": self.do_options,
+            "run": self.do_run,
+            "exploit": self.do_run,
+            "back": self.do_back,
+            "generate": self.do_generate,
+            "connect": self.do_connect,
+            "help": self.do_help,
+            "?": self.do_help,
+        }.get(cmd)
+        if handler is None:
+            return (f"[!] unknown command: {cmd} (try 'help')", True, None)
+        try:
+            return (handler(cmd_args), True, None)
+        except MsfRpcError as e:
+            return (f"[!] RPC error: {e}", True, None)
+        except Exception as e:
+            return (f"[!] error: {e}", True, None)
+
+    # --- handlers (return a string) ---
+
+    def do_jobs(self, args):
+        if args and args[0] == "-k":
+            if len(args) < 2:
+                return "[!] usage: jobs -k <id>"
+            return self._emit(kill_job(self.client, args[1]),
+                              lambda d: d.get("message", ""))
+        return self._emit(get_jobs(self.client), format_jobs)
+
+    def do_sessions(self, args):
+        return self._emit(get_sessions(self.client), format_sessions)
+
+    def do_use(self, args):
+        if not args:
+            return "[!] usage: use <module>"
+        self.current_module = args[0]
+        self.module_options = {}
+        return f"[*] using {args[0]}"
+
+    def do_set(self, args):
+        if len(args) >= 2 and args[0] == "output":
+            mode = args[1].lower()
+            if mode not in ("json", "table"):
+                return "[!] output mode must be json or table"
+            self.output_mode = mode
+            return f"[*] output mode: {mode}"
+        if len(args) < 2:
+            return "[!] usage: set <OPTION> <VALUE>  |  set output json|table"
+        if not self.current_module:
+            return "[!] no module selected (use <module> first)"
+        self.module_options[args[0]] = " ".join(args[1:])
+        return f"{args[0]} => {' '.join(args[1:])}"
+
+    def do_unset(self, args):
+        if args and args[0] in self.module_options:
+            del self.module_options[args[0]]
+            return f"unset {args[0]}"
+        return "[!] not set"
+
+    def do_options(self, args):
+        if not self.current_module:
+            return "[!] no module selected"
+        rows = [[k, v] for k, v in self.module_options.items()]
+        return f"Module: {self.current_module}\n" + render_table(["Option", "Value"], rows)
+
+    def do_run(self, args):
+        if not self.current_module:
+            return "[!] no module selected (use <module> first)"
+        result = run_exploit(self.client, self.current_module, dict(self.module_options))
+        return self._emit(result, format_exploit_result)
+
+    def do_back(self, args):
+        self.current_module = None
+        self.module_options = {}
+        return ""
+
+    def do_generate(self, args):
+        if len(args) != 5:
+            return "[!] usage: generate <fmt> <payload> <lhost> <lport> <outfile>"
+        result = generate_payload(*args)
+        return self._emit(result, lambda d: d.get("message", ""))
+
+    def do_connect(self, args):
+        ci = self.conn_info
+        return (f"[*] RPC {ci.get('rpc_server')}:{ci.get('rpc_port')} "
+                f"ssl={ci.get('rpc_ssl')}")
+
+    def do_help(self, args):
+        return (
+            "Commands:\n"
+            "  jobs                         list active jobs\n"
+            "  jobs -k <id>                 kill a job\n"
+            "  sessions                     list active sessions\n"
+            "  sessions -i <id>             interact with a session\n"
+            "  use <module>                 select a module\n"
+            "  set <OPT> <VAL>              set a module option\n"
+            "  unset <OPT>                  clear a module option\n"
+            "  options                      show current module + options\n"
+            "  run | exploit                run the current module (run -j)\n"
+            "  back                         clear current module\n"
+            "  generate <fmt> <payload> <lhost> <lport> <outfile>\n"
+            "  set output json|table        switch output format\n"
+            "  connect                      show RPC connection\n"
+            "  help | ?                     this help\n"
+            "  exit | quit                  leave the console"
+        )
 
 
 if __name__ == "__main__":
