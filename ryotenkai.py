@@ -173,27 +173,27 @@ def start_rpc_server(rpc_password, rpc_port, rpc_ssl, rpc_user, rpc_server):
 
 
 
+def make_client(rpc_password, rpc_server, rpc_port, rpc_ssl):
+    """Build a Metasploit RPC client."""
+    return MsfRpcClient(rpc_password, server=rpc_server, port=rpc_port, ssl=rpc_ssl)
+
+
 # Functionality 2: Poll active jobs
 def get_jobs(client):
-    jobs = client.jobs.list
-    if jobs:
-        logging.debug(f"Active jobs: {jobs}")
-    else:
-        logging.info("No active jobs.")
-    print(json.dumps(jobs))
-    return jobs
+    """Return the dict of active Metasploit jobs."""
+    return client.jobs.list
 
 
 # Functionality 3: Poll active sessions
 def get_sessions(client):
-    sessions = client.sessions.list
-    if sessions:
-        logging.debug(f"Active sessions: {sessions}")
-    else:
-        logging.info("No active sessions.")
-    # Print the sessions in JSON format for easy parsing by Ansible
-    print(json.dumps(sessions))
-    return sessions
+    """Return the dict of active Metasploit sessions."""
+    return client.sessions.list
+
+
+def kill_job(client, job_id):
+    """Stop a running job by id."""
+    client.jobs.stop(str(job_id))
+    return {"status": "success", "message": f"Job {job_id} killed"}
 
 
 # Functionality 4: Access session and run chained commands (e.g., open shell and run a PowerShell command)
