@@ -8,6 +8,13 @@ from pymetasploit3.msfrpc import MsfRpcClient, MsfRpcError
 import json
 
 
+# Polling configuration for console/session reads
+POLL_INTERVAL = 0.5
+CONSOLE_TIMEOUT = 15
+SESSION_TIMEOUT = 10
+SESSION_QUIET_ROUNDS = 2
+
+
 # Load configuration from config.ini
 def load_config(config_file, section):
     config = configparser.ConfigParser()
@@ -75,69 +82,71 @@ def parse_arguments(config):
 
 
 # Core functions
+def _read_console(console, timeout=CONSOLE_TIMEOUT, interval=POLL_INTERVAL):
+    """Read a console, accumulating output until it is no longer busy or timeout."""
+    deadline = time.monotonic() + timeout
+    chunks = []
+    while True:
+        result = console.read()
+        chunks.append(result.get("data", ""))
+        if not result.get("busy", False):
+            break
+        if time.monotonic() >= deadline:
+            break
+        time.sleep(interval)
+    return "".join(chunks)
+
+
+def _read_session(session, timeout=SESSION_TIMEOUT, interval=POLL_INTERVAL,
+                  quiet_rounds=SESSION_QUIET_ROUNDS):
+    """Read a session, stopping after output goes quiet for `quiet_rounds` polls."""
+    deadline = time.monotonic() + timeout
+    chunks = []
+    quiet = 0
+    while True:
+        data = session.read() or ""
+        if data:
+            chunks.append(data)
+            quiet = 0
+        else:
+            quiet += 1
+            if quiet >= quiet_rounds:
+                break
+        if time.monotonic() >= deadline:
+            break
+        time.sleep(interval)
+    return "".join(chunks)
+
+
 # Functionality 1: Run any Metasploit module
 def run_exploit(client, module_name, options, regex=None):
+    """Run a module via a console (`run -j`) and return structured output."""
     try:
         console = client.consoles.console()
-        logging.info(f"Created a new console with ID: {console.cid}")
-
-        logging.info(f"Using module: {module_name}")
-        console.write(f'use {module_name}\n')
-
+        console.write(f"use {module_name}\n")
         for option, value in options.items():
-            logging.info(f"Setting option: {option} = {value}")
-            console.write(f'set {option} {value}\n')
+            console.write(f"set {option} {value}\n")
+        console.write("run -j\n")
+        output = _read_console(console)
 
-        logging.info("Running the exploit...")
-        console.write('run -j\n')
-
-        time.sleep(3)
-        output = console.read()['data']
-        
         filtered_output = None
         if regex:
-            logging.info(f"Filtering output with regex: {regex}")
             matches = re.findall(regex, output, re.DOTALL)
             filtered_output = "\n".join(matches)
 
-        logging.info("Exploit run completed. Output:")
-        logging.debug(output)
-
-        # Prepare the structured JSON output
-        output_data = {
+        return {
             "status": "success",
             "module": module_name,
             "options": options,
             "raw_output": output,
-            "filtered_output": filtered_output if filtered_output else "No match for regex"
+            "filtered_output": filtered_output if filtered_output else "No match for regex",
         }
-
-        # Output the result as JSON
-        print(json.dumps(output_data, indent=4))
-        return output_data
-
     except MsfRpcError as e:
-        logging.error(f"Metasploit RPC error: {e}")
-
-        # Output error message as JSON
-        error_output = {
-            "status": "error",
-            "message": f"Metasploit RPC error: {str(e)}"
-        }
-        print(json.dumps(error_output, indent=4))
-        return None
+        return {"status": "error", "message": f"Metasploit RPC error: {str(e)}"}
     except Exception as e:
-        logging.error(f"An unexpected error occurred: {e}")
+        return {"status": "error", "message": f"An unexpected error occurred: {str(e)}"}
 
-        # Output error message as JSON
-        error_output = {
-            "status": "error",
-            "message": f"An unexpected error occurred: {str(e)}"
-        }
-        print(json.dumps(error_output, indent=4))
-        return None
 
-    
 # Functionality to start the RPC server
 def start_rpc_server(rpc_password, rpc_port, rpc_ssl, rpc_user, rpc_server):
     try:
@@ -197,32 +206,23 @@ def kill_job(client, job_id):
 
 
 # Functionality 4: Access session and run chained commands (e.g., open shell and run a PowerShell command)
+def run_session_command(client, session_id, command):
+    """Write one command to a session and return the polled output."""
+    session = client.sessions.session(session_id)
+    session.write(command + "\n")
+    return _read_session(session)
+
+
 def access_session(client, session_id, command_sequence):
-    try:
-        logging.info(f"Session ID: {session_id}, Command Sequence: {command_sequence}")
-        session = client.sessions.session(session_id)
-        logging.debug(f"Accessing session {session}")
-        
-        # Loop through each command in the sequence and execute
-        for command in command_sequence:
-            logging.info(f"Executing command: {command}")
-            session.write(command + "\n")
-            time.sleep(2)  # Adjust sleep time based on how long the command takes
-            result = session.read()
-            logging.debug(f"Command result: {result}")
-
-        # Output the result of the last command in JSON
-        output = {
-            "session_id": session_id,
-            "command_sequence": command_sequence,
-            "final_result": result
-        }
-        print(json.dumps(output, indent=4))
-        return result
-
-    except MsfRpcError as e:
-        logging.error(f"Error accessing session {session_id}: {e}")
-        return None
+    """Run a sequence of commands in a session; return the final result."""
+    results = []
+    for command in command_sequence:
+        results.append(run_session_command(client, session_id, command))
+    return {
+        "session_id": session_id,
+        "command_sequence": command_sequence,
+        "final_result": results[-1] if results else "",
+    }
 
 
 
