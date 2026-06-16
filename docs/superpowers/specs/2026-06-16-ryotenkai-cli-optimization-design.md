@@ -15,7 +15,7 @@ The four axes map directly to roadmap Phases 1–4:
 
 | Phase | Axis | Goal |
 |-------|------|------|
-| 1 | Packaging & config | `pip install`, `rtk` entrypoint, one source of truth for connection params |
+| 1 | Packaging & config | `pip install`, `ryo` entrypoint, one source of truth for connection params |
 | 2 | RPC perf & reliability | Faster, more robust polling and reconnect |
 | 3 | REPL UX | Live completion, search, color, sharper errors |
 | 4 | Metasploit coverage | Module search/info, session kill/upgrade, db/creds/loot |
@@ -40,10 +40,10 @@ The four axes map directly to roadmap Phases 1–4:
 
 ## 3. Phase 1 — Packaging & config
 
-**Target:** `pip install .` yields an `rtk` command; one resolver decides every connection parameter with a documented precedence; `rpc_ssl` config value is honored.
+**Target:** `pip install .` yields a `ryo` command (named `ryo`, not `rtk`, to avoid colliding with the RTK "Rust Token Killer" binary); one resolver decides every connection parameter with a documented precedence; `rpc_ssl` config value is honored.
 
 **Changes:**
-- Add `pyproject.toml` (PEP 621). Keep `ryotenkai.py` as a top-level module (`py-modules = ["ryotenkai"]`) to avoid churning imports in `tests/`. Define `[project.scripts] rtk = "ryotenkai:main"`.
+- Add `pyproject.toml` (PEP 621). Keep `ryotenkai.py` as a top-level module (`py-modules = ["ryotenkai"]`) to avoid churning imports in `tests/`. Define `[project.scripts] ryo = "ryotenkai:main"`.
 - Extract a `main()` function from the `if __name__ == "__main__"` block so the console_script has a target. The `__main__` guard just calls `main()`.
 - Add a single `resolve_conn(args, config)` helper returning `(password, server, port, ssl)` with precedence: **CLI flag > env var (`RTK_RPC_*`) > `config.ini [default]` > built-in default constant**. Replace the scattered `config.get(..., 55552)` defaults with one `DEFAULTS` dict.
 - Fix `rpc_ssl`: replace `store_true` with a tri-state (`--rpc-ssl` / `--no-rpc-ssl`, default `None`) so the resolver can fall back to config/env. This closes the documented "config `rpc_ssl` ignored" bug.

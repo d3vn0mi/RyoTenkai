@@ -10,6 +10,8 @@
 
 **Source spec:** `docs/superpowers/specs/2026-06-16-ryotenkai-cli-optimization-design.md` §3 (Phase 1).
 
+> **Execution note (rename):** This plan was written with the console_script named `rtk`. During execution that name was found to collide with the user's global RTK "Rust Token Killer" binary (`~/.local/bin/rtk`, used by a Claude Code hook) — a `pip install` clobbered it. The entrypoint was renamed to **`ryo`** (`[project.scripts] ryo = "ryotenkai:main"`) and RTK was restored. Read every `rtk` below as `ryo`.
+
 ---
 
 ## File Structure
@@ -399,7 +401,7 @@ dependencies = ["pymetasploit3", "prompt_toolkit"]
 test = ["pytest"]
 
 [project.scripts]
-rtk = "ryotenkai:main"
+ryo = "ryotenkai:main"
 
 [tool.setuptools]
 py-modules = ["ryotenkai"]
