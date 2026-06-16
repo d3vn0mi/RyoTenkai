@@ -591,10 +591,7 @@ class RtkConsole:
 
 
 def _launch_repl(args, config):
-    rpc_password = getattr(args, "rpc_password", config.get("rpc_password", "msfrpc"))
-    rpc_server = getattr(args, "rpc_server", config.get("rpc_server", "127.0.0.1"))
-    rpc_port = int(getattr(args, "rpc_port", config.get("rpc_port", 55552)))
-    rpc_ssl = getattr(args, "rpc_ssl", False)
+    rpc_password, rpc_server, rpc_port, rpc_ssl = resolve_conn(args, config)
     try:
         client = make_client(rpc_password, rpc_server, rpc_port, rpc_ssl)
     except Exception as e:
@@ -604,7 +601,7 @@ def _launch_repl(args, config):
     RtkConsole(client, conn_info).cmdloop()
 
 
-if __name__ == "__main__":
+def main():
     logging.basicConfig(level=logging.INFO,
                         format="%(asctime)s - %(levelname)s - %(message)s")
     config = load_config("config.ini", "default")
@@ -618,22 +615,30 @@ if __name__ == "__main__":
                          args.rpc_user, args.rpc_server)
 
     elif args.command == "run_module":
-        client = make_client(args.rpc_password, args.rpc_server, args.rpc_port, args.rpc_ssl)
+        pw, srv, port, ssl = resolve_conn(args, config)
+        client = make_client(pw, srv, port, ssl)
         options = parse_options(args.option)
         print(json.dumps(run_exploit(client, args.module, options, args.regex), indent=4))
 
     elif args.command == "get_jobs":
-        client = make_client(args.rpc_password, args.rpc_server, args.rpc_port, args.rpc_ssl)
+        pw, srv, port, ssl = resolve_conn(args, config)
+        client = make_client(pw, srv, port, ssl)
         print(json.dumps(get_jobs(client)))
 
     elif args.command == "get_sessions":
-        client = make_client(args.rpc_password, args.rpc_server, args.rpc_port, args.rpc_ssl)
+        pw, srv, port, ssl = resolve_conn(args, config)
+        client = make_client(pw, srv, port, ssl)
         print(json.dumps(get_sessions(client)))
 
     elif args.command == "run_command":
-        client = make_client(args.rpc_password, args.rpc_server, args.rpc_port, args.rpc_ssl)
+        pw, srv, port, ssl = resolve_conn(args, config)
+        client = make_client(pw, srv, port, ssl)
         print(json.dumps(access_session(client, args.session_id, args.commands), indent=4))
 
     elif args.command == "generate_payload":
         print(json.dumps(generate_payload(args.format, args.payload, args.lhost,
                                            args.lport, args.output_file), indent=4))
+
+
+if __name__ == "__main__":
+    main()

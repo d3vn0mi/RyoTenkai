@@ -1,6 +1,7 @@
 import ryotenkai
 import pytest
 from types import SimpleNamespace
+from unittest.mock import MagicMock
 
 
 def _args(**kw):
@@ -83,3 +84,17 @@ def test_parse_arguments_ssl_flag_false(monkeypatch):
     monkeypatch.setattr("sys.argv", ["ryotenkai.py", "get_jobs", "--no-rpc-ssl"])
     args = ryotenkai.parse_arguments({})
     assert args.rpc_ssl is False
+
+
+def test_main_get_jobs_prints_json(monkeypatch, capsys):
+    monkeypatch.setattr("sys.argv", ["ryotenkai.py", "get_jobs"])
+    monkeypatch.setattr(ryotenkai, "load_config", lambda *_a, **_k: {})
+    fake = MagicMock()
+    fake.jobs.list = {"0": "Exploit: multi/handler"}
+    monkeypatch.setattr(ryotenkai, "make_client", lambda *a, **k: fake)
+    ryotenkai.main()
+    assert '"0": "Exploit: multi/handler"' in capsys.readouterr().out
+
+
+def test_main_is_callable():
+    assert callable(ryotenkai.main)
