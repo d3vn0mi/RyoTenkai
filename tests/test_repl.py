@@ -15,9 +15,9 @@ def console():
 
 
 def test_prompt_changes_with_module(console):
-    assert console.prompt_str() == "rtk > "
+    assert console.prompt_str() == "ryo > "
     console.dispatch("use exploit/multi/handler")
-    assert console.prompt_str() == "rtk (exploit/multi/handler) > "
+    assert console.prompt_str() == "ryo (exploit/multi/handler) > "
 
 
 def test_use_set_run_builds_options(console, monkeypatch):

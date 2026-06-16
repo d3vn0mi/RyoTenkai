@@ -404,8 +404,8 @@ class RtkConsole:
 
     def prompt_str(self):
         if self.current_module:
-            return f"rtk ({self.current_module}) > "
-        return "rtk > "
+            return f"ryo ({self.current_module}) > "
+        return "ryo > "
 
     def _emit(self, data, table_fn):
         if self.output_mode == "json":
