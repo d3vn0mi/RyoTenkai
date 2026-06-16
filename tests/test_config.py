@@ -1,6 +1,6 @@
 import ryotenkai
+import pytest
 from types import SimpleNamespace
-from unittest.mock import MagicMock
 
 
 def _args(**kw):
@@ -56,3 +56,9 @@ def test_resolve_conn_cli_over_env(monkeypatch):
         _args(rpc_password="clipw", rpc_ssl=True), {})
     assert pw == "clipw"
     assert ssl is True
+
+
+def test_resolve_conn_bad_port_raises(monkeypatch):
+    _clear_env(monkeypatch)
+    with pytest.raises(ValueError):
+        ryotenkai.resolve_conn(_args(), {"rpc_port": "garbage"})

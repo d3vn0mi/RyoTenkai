@@ -65,7 +65,11 @@ def resolve_conn(args, config):
 
     password = str(pick("rpc_password"))
     server = str(pick("rpc_server"))
-    port = int(pick("rpc_port"))
+    raw_port = pick("rpc_port")
+    try:
+        port = int(raw_port)
+    except (ValueError, TypeError):
+        raise ValueError(f"rpc_port must be an integer, got {raw_port!r}") from None
     ssl = _parse_bool(pick("rpc_ssl"))
     if ssl is None:
         ssl = DEFAULTS["rpc_ssl"]
