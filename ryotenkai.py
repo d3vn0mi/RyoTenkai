@@ -89,10 +89,12 @@ def add_rpc_args(parser):
     parser.add_argument('--rpc-password', default=None,
                         help='Metasploit RPC password (env RTK_RPC_PASSWORD / config / default).')
     parser.add_argument('--rpc-server', default=None,
-                        help='Metasploit RPC server address.')
+                        help='Metasploit RPC server address (env RTK_RPC_SERVER / config / default).')
     parser.add_argument('--rpc-port', type=int, default=None,
-                        help='Metasploit RPC server port.')
+                        help='Metasploit RPC server port (env RTK_RPC_PORT / config / default).')
     ssl = parser.add_mutually_exclusive_group()
+    # default=None must stay on --rpc-ssl (registered before --no-rpc-ssl) so
+    # absence resolves to None, not True (store_false's implicit default).
     ssl.add_argument('--rpc-ssl', dest='rpc_ssl', action='store_true', default=None,
                      help='Use SSL for the RPC connection.')
     ssl.add_argument('--no-rpc-ssl', dest='rpc_ssl', action='store_false',
