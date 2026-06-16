@@ -1,3 +1,8 @@
 __pycache__
 migrations
 compose-dev.yaml
+
+# Python packaging build artifacts
+*.egg-info/
+build/
+dist/

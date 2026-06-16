@@ -1,0 +1,22 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ryotenkai"
+version = "0.1.0"
+description = "Lab-grade Metasploit CLI/REPL and C2 framework for authorized red-team work."
+readme = "README.md"
+requires-python = ">=3.8"
+license = { text = "Apache-2.0" }
+authors = [{ name = "d3vn0mi" }]
+dependencies = ["pymetasploit3", "prompt_toolkit"]
+
+[project.optional-dependencies]
+test = ["pytest"]
+
+[project.scripts]
+ryo = "ryotenkai:main"
+
+[tool.setuptools]
+py-modules = ["ryotenkai"]
