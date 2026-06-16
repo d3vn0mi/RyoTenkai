@@ -1,4 +1,5 @@
 import ryotenkai
+import json
 import pytest
 from types import SimpleNamespace
 from unittest.mock import MagicMock
@@ -93,7 +94,10 @@ def test_main_get_jobs_prints_json(monkeypatch, capsys):
     fake.jobs.list = {"0": "Exploit: multi/handler"}
     monkeypatch.setattr(ryotenkai, "make_client", lambda *a, **k: fake)
     ryotenkai.main()
-    assert '"0": "Exploit: multi/handler"' in capsys.readouterr().out
+    # Stdout must be parseable JSON (the Ansible-consumed contract), not just
+    # contain the substring.
+    data = json.loads(capsys.readouterr().out)
+    assert data == {"0": "Exploit: multi/handler"}
 
 
 def test_main_is_callable():
