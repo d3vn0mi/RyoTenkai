@@ -22,6 +22,55 @@ SESSION_QUIET_ROUNDS = 2
 HISTORY_PATH = os.path.expanduser("~/.rtk_history")
 BANNER = "RyoTenkai interactive console. Type 'help' for commands, 'exit' to quit."
 
+DEFAULTS = {
+    "rpc_password": "msfrpc",
+    "rpc_server": "127.0.0.1",
+    "rpc_port": 55552,
+    "rpc_ssl": False,
+}
+
+ENV_KEYS = {
+    "rpc_password": "RTK_RPC_PASSWORD",
+    "rpc_server": "RTK_RPC_SERVER",
+    "rpc_port": "RTK_RPC_PORT",
+    "rpc_ssl": "RTK_RPC_SSL",
+}
+
+
+def _parse_bool(value):
+    """Coerce a config/env value to bool. None passes through unchanged."""
+    if value is None or isinstance(value, bool):
+        return value
+    return str(value).strip().lower() in ("1", "true", "yes", "on")
+
+
+def resolve_conn(args, config):
+    """Resolve RPC client params with precedence:
+    CLI flag > env (RTK_RPC_*) > config.ini [default] > built-in default.
+
+    `args` RPC attrs are None when the flag was not passed on the CLI;
+    `config` is the dict returned by load_config(...). Returns the tuple
+    (password, server, port, ssl).
+    """
+    def pick(key):
+        cli = getattr(args, key, None)
+        if cli is not None:
+            return cli
+        env = os.environ.get(ENV_KEYS[key])
+        if env is not None:
+            return env
+        if key in config:
+            return config[key]
+        return DEFAULTS[key]
+
+    password = str(pick("rpc_password"))
+    server = str(pick("rpc_server"))
+    port = int(pick("rpc_port"))
+    ssl = _parse_bool(pick("rpc_ssl"))
+    if ssl is None:
+        ssl = DEFAULTS["rpc_ssl"]
+    return password, server, port, ssl
+
 
 # Load configuration from config.ini
 def load_config(config_file, section):
