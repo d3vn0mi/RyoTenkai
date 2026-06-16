@@ -83,6 +83,22 @@ def load_config(config_file, section):
     return dict(config.items(section)) if config.has_section(section) else {}
 
 
+def add_rpc_args(parser):
+    """Attach the shared RPC client flags. Defaults are None so resolve_conn
+    can apply CLI > env > config > default precedence; --rpc-ssl is tri-state."""
+    parser.add_argument('--rpc-password', default=None,
+                        help='Metasploit RPC password (env RTK_RPC_PASSWORD / config / default).')
+    parser.add_argument('--rpc-server', default=None,
+                        help='Metasploit RPC server address.')
+    parser.add_argument('--rpc-port', type=int, default=None,
+                        help='Metasploit RPC server port.')
+    ssl = parser.add_mutually_exclusive_group()
+    ssl.add_argument('--rpc-ssl', dest='rpc_ssl', action='store_true', default=None,
+                     help='Use SSL for the RPC connection.')
+    ssl.add_argument('--no-rpc-ssl', dest='rpc_ssl', action='store_false',
+                     help='Disable SSL for the RPC connection.')
+
+
 # Parse the arguments and load from config.ini if necessary
 def parse_arguments(config):
     parser = argparse.ArgumentParser(description='Metasploit Tool with Multiple Functionalities.')
@@ -94,33 +110,21 @@ def parse_arguments(config):
     run_parser.add_argument('module', help='The Metasploit module to use (e.g., exploit/multi/script/web_delivery).')
     run_parser.add_argument('--option', action='append', help='Module options in the form OPTION=VALUE.', required=True)
     run_parser.add_argument('--regex', help='Regex pattern to filter output.', default=config.get('regex', r"Run the following command on the target machine:\n(.*)"))
-    run_parser.add_argument('--rpc-password', help='The password for the Metasploit RPC server.', default=config.get('rpc_password', 'msfrpc'))
-    run_parser.add_argument('--rpc-server', help='The Metasploit RPC server address.', default=config.get('rpc_server', '127.0.0.1'))
-    run_parser.add_argument('--rpc-port', help='The Metasploit RPC server port.', type=int, default=int(config.get('rpc_port', 55552)))
-    run_parser.add_argument('--rpc-ssl', action='store_true', help='Use SSL for RPC connection.')
+    add_rpc_args(run_parser)
 
     # Get jobs
     jobs_parser = subparsers.add_parser('get_jobs', help='Poll the active Metasploit jobs.')
-    jobs_parser.add_argument('--rpc-password', help='The password for the Metasploit RPC server.', default=config.get('rpc_password', 'msfrpc'))
-    jobs_parser.add_argument('--rpc-server', help='The Metasploit RPC server address.', default=config.get('rpc_server', '127.0.0.1'))
-    jobs_parser.add_argument('--rpc-port', help='The Metasploit RPC server port.', type=int, default=int(config.get('rpc_port', 55552)))
-    jobs_parser.add_argument('--rpc-ssl', action='store_true', help='Use SSL for RPC connection.')
+    add_rpc_args(jobs_parser)
 
     # Get sessions
     sessions_parser = subparsers.add_parser('get_sessions', help='Poll the active Metasploit sessions.')
-    sessions_parser.add_argument('--rpc-password', help='The password for the Metasploit RPC server.', default=config.get('rpc_password', 'msfrpc'))
-    sessions_parser.add_argument('--rpc-server', help='The Metasploit RPC server address.', default=config.get('rpc_server', '127.0.0.1'))
-    sessions_parser.add_argument('--rpc-port', help='The Metasploit RPC server port.', type=int, default=int(config.get('rpc_port', 55552)))
-    sessions_parser.add_argument('--rpc-ssl', action='store_true', help='Use SSL for RPC connection.')
+    add_rpc_args(sessions_parser)
 
     # Access session and run command
     access_parser = subparsers.add_parser('run_command', help='Access a Metasploit session and run a command.')
     access_parser.add_argument('session_id', help='The ID of the session to access.')
     access_parser.add_argument('commands', nargs='+', help='The command(s) to run in the session.')
-    access_parser.add_argument('--rpc-password', help='The password for the Metasploit RPC server.', default=config.get('rpc_password', 'msfrpc'))
-    access_parser.add_argument('--rpc-server', help='The Metasploit RPC server address.', default=config.get('rpc_server', '127.0.0.1'))
-    access_parser.add_argument('--rpc-port', help='The Metasploit RPC server port.', type=int, default=int(config.get('rpc_port', 55552)))
-    access_parser.add_argument('--rpc-ssl', action='store_true', help='Use SSL for RPC connection.')
+    add_rpc_args(access_parser)
 
     # Generate payload
     venom_parser = subparsers.add_parser('generate_payload', help='Generate a payload using msfvenom.')
@@ -140,10 +144,7 @@ def parse_arguments(config):
 
     # Interactive REPL
     interactive_parser = subparsers.add_parser('interactive', help='Launch the interactive console.')
-    interactive_parser.add_argument('--rpc-password', default=config.get('rpc_password', 'msfrpc'))
-    interactive_parser.add_argument('--rpc-server', default=config.get('rpc_server', '127.0.0.1'))
-    interactive_parser.add_argument('--rpc-port', type=int, default=int(config.get('rpc_port', 55552)))
-    interactive_parser.add_argument('--rpc-ssl', action='store_true')
+    add_rpc_args(interactive_parser)
 
 
     return parser.parse_args()

@@ -62,3 +62,24 @@ def test_resolve_conn_bad_port_raises(monkeypatch):
     _clear_env(monkeypatch)
     with pytest.raises(ValueError):
         ryotenkai.resolve_conn(_args(), {"rpc_port": "garbage"})
+
+
+def test_parse_arguments_rpc_defaults_none(monkeypatch):
+    monkeypatch.setattr("sys.argv", ["ryotenkai.py", "get_jobs"])
+    args = ryotenkai.parse_arguments({})
+    assert args.rpc_password is None
+    assert args.rpc_server is None
+    assert args.rpc_port is None
+    assert args.rpc_ssl is None
+
+
+def test_parse_arguments_ssl_flag_true(monkeypatch):
+    monkeypatch.setattr("sys.argv", ["ryotenkai.py", "get_jobs", "--rpc-ssl"])
+    args = ryotenkai.parse_arguments({})
+    assert args.rpc_ssl is True
+
+
+def test_parse_arguments_ssl_flag_false(monkeypatch):
+    monkeypatch.setattr("sys.argv", ["ryotenkai.py", "get_jobs", "--no-rpc-ssl"])
+    args = ryotenkai.parse_arguments({})
+    assert args.rpc_ssl is False
