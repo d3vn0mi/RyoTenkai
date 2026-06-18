@@ -72,7 +72,7 @@ def test_unknown_command(console):
 def test_dispatch_catches_handler_rpc_error(console, monkeypatch):
     def boom(client):
         raise ryotenkai.MsfRpcError("down")
-    monkeypatch.setattr(ryotenkai, "get_jobs", boom)
+    monkeypatch.setattr(ryotenkai, "get_job_details", boom)
     out, keep, action = console.dispatch("jobs")
     assert "rpc error" in out.lower()
     assert keep is True
@@ -81,7 +81,7 @@ def test_dispatch_catches_handler_rpc_error(console, monkeypatch):
 def test_dispatch_catches_generic_error(console, monkeypatch):
     def boom(client):
         raise ValueError("boom")
-    monkeypatch.setattr(ryotenkai, "get_jobs", boom)
+    monkeypatch.setattr(ryotenkai, "get_job_details", boom)
     out, keep, action = console.dispatch("jobs")
     assert out.lower().startswith("[!] error")
     assert keep is True

@@ -11,6 +11,53 @@ def test_get_jobs_returns_dict(mock_client):
     assert ryotenkai.get_jobs(mock_client) == {"0": "Exploit: multi/handler"}
 
 
+def test_get_job_details_enriches_from_info(mock_client):
+    mock_client.jobs.list = {"0": "Exploit: multi/handler"}
+    mock_client.jobs.info.return_value = {
+        "name": "Exploit: multi/handler",
+        "datastore": {"PAYLOAD": "windows/meterpreter/reverse_tcp",
+                      "LHOST": "10.0.0.1", "LPORT": "4444"},
+    }
+    out = ryotenkai.get_job_details(mock_client)
+    mock_client.jobs.info.assert_called_once_with("0")
+    assert out == {"0": {"name": "Exploit: multi/handler",
+                         "payload": "windows/meterpreter/reverse_tcp",
+                         "lhost": "10.0.0.1", "lport": "4444"}}
+
+
+def test_get_job_details_case_insensitive_datastore(mock_client):
+    mock_client.jobs.list = {"3": "Exploit: multi/handler"}
+    mock_client.jobs.info.return_value = {
+        "datastore": {"payload": "linux/x64/meterpreter/reverse_tcp",
+                      "lhost": "10.0.0.9", "lport": "9001"},
+    }
+    out = ryotenkai.get_job_details(mock_client)
+    assert out["3"]["payload"] == "linux/x64/meterpreter/reverse_tcp"
+    assert out["3"]["lhost"] == "10.0.0.9" and out["3"]["lport"] == "9001"
+
+
+def test_get_job_details_filters_by_id(mock_client):
+    mock_client.jobs.list = {"0": "handler", "1": "web_delivery"}
+    mock_client.jobs.info.return_value = {"datastore": {}}
+    out = ryotenkai.get_job_details(mock_client, "1")
+    assert list(out.keys()) == ["1"]
+    mock_client.jobs.info.assert_called_once_with("1")
+
+
+def test_get_job_details_unknown_id_is_empty(mock_client):
+    mock_client.jobs.list = {"0": "handler"}
+    assert ryotenkai.get_job_details(mock_client, "9") == {}
+    mock_client.jobs.info.assert_not_called()
+
+
+def test_get_job_details_survives_bad_job(mock_client):
+    mock_client.jobs.list = {"0": "handler"}
+    mock_client.jobs.info.side_effect = RuntimeError("boom")
+    out = ryotenkai.get_job_details(mock_client)
+    assert out == {"0": {"name": "handler", "payload": "N/A",
+                         "lhost": "N/A", "lport": "N/A"}}
+
+
 def test_get_sessions_returns_dict(mock_client):
     mock_client.sessions.list = {"1": {"type": "meterpreter"}}
     assert ryotenkai.get_sessions(mock_client) == {"1": {"type": "meterpreter"}}

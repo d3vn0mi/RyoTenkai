@@ -17,6 +17,17 @@ def test_format_jobs():
     assert "0" in out and "multi/handler" in out
 
 
+def test_format_job_details():
+    out = ryotenkai.format_job_details(
+        {"0": {"name": "Exploit: multi/handler",
+               "payload": "windows/meterpreter/reverse_tcp",
+               "lhost": "10.0.0.1", "lport": "4444"}}
+    )
+    assert "multi/handler" in out and "reverse_tcp" in out
+    assert "10.0.0.1" in out and "4444" in out
+    assert "Payload" in out and "LHOST" in out
+
+
 def test_format_sessions():
     out = ryotenkai.format_sessions(
         {"1": {"type": "meterpreter", "tunnel_peer": "10.0.0.5", "info": "WORKGROUP"}}

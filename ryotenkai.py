@@ -118,6 +118,15 @@ def parse_arguments(config):
     jobs_parser = subparsers.add_parser('get_jobs', help='Poll the active Metasploit jobs.')
     add_rpc_args(jobs_parser)
 
+    # Get job details (enriched with payload/lhost/lport from job.info)
+    job_details_parser = subparsers.add_parser(
+        'get_job_details',
+        help='Poll active jobs with payload/lhost/lport from job.info datastore.')
+    job_details_parser.add_argument(
+        'job_id', nargs='?',
+        help='Only show this job id (default: all active jobs).')
+    add_rpc_args(job_details_parser)
+
     # Get sessions
     sessions_parser = subparsers.add_parser('get_sessions', help='Poll the active Metasploit sessions.')
     add_rpc_args(sessions_parser)
@@ -274,6 +283,44 @@ def get_jobs(client):
     return client.jobs.list
 
 
+def _ds_get(datastore, key, default="N/A"):
+    """Case-insensitive datastore lookup (MSF datastore key casing varies)."""
+    if not isinstance(datastore, dict):
+        return default
+    lowered = {str(k).lower(): v for k, v in datastore.items()}
+    return lowered.get(key.lower(), default)
+
+
+def get_job_details(client, job_id=None):
+    """Return active jobs enriched with payload/lhost/lport from job.info.
+
+    Keyed by job id -> {name, payload, lhost, lport}. If job_id is given, only
+    that job is returned (empty dict if it is not an active job). job.info data
+    is produced by the MSF server, so extract defensively and never let one bad
+    job abort the whole poll.
+    """
+    jobs = client.jobs.list or {}
+    if job_id is not None:
+        job_id = str(job_id)
+        jobs = {job_id: jobs[job_id]} if job_id in jobs else {}
+    details = {}
+    for jid, name in jobs.items():
+        try:
+            info = client.jobs.info(jid)
+            ds = info.get("datastore", {}) if isinstance(info, dict) else {}
+            details[jid] = {
+                "name": name,
+                "payload": _ds_get(ds, "PAYLOAD"),
+                "lhost": _ds_get(ds, "LHOST"),
+                "lport": _ds_get(ds, "LPORT"),
+            }
+        except Exception as e:
+            logging.warning(f"Could not fetch info for job {jid}: {e}")
+            details[jid] = {"name": name, "payload": "N/A",
+                            "lhost": "N/A", "lport": "N/A"}
+    return details
+
+
 # Functionality 3: Poll active sessions
 def get_sessions(client):
     """Return the dict of active Metasploit sessions."""
@@ -356,6 +403,16 @@ def render_table(headers, rows):
 def format_jobs(jobs):
     rows = [[jid, name] for jid, name in (jobs or {}).items()]
     return render_table(["Job ID", "Module"], rows)
+
+
+def format_job_details(details):
+    """msfconsole-style jobs table: id, name, payload, and LHOST:LPORT."""
+    rows = []
+    for jid, info in (details or {}).items():
+        info = info or {}
+        rows.append([jid, info.get("name", ""), info.get("payload", ""),
+                     info.get("lhost", ""), info.get("lport", "")])
+    return render_table(["Id", "Name", "Payload", "LHOST", "LPORT"], rows)
 
 
 def format_sessions(sessions):
@@ -463,7 +520,7 @@ class RtkConsole:
                 return "[!] usage: jobs -k <id>"
             return self._emit(kill_job(self.client, args[1]),
                               lambda d: d.get("message", ""))
-        return self._emit(get_jobs(self.client), format_jobs)
+        return self._emit(get_job_details(self.client), format_job_details)
 
     def do_sessions(self, args):
         return self._emit(get_sessions(self.client), format_sessions)
@@ -624,6 +681,11 @@ def main():
         pw, srv, port, ssl = resolve_conn(args, config)
         client = make_client(pw, srv, port, ssl)
         print(json.dumps(get_jobs(client)))
+
+    elif args.command == "get_job_details":
+        pw, srv, port, ssl = resolve_conn(args, config)
+        client = make_client(pw, srv, port, ssl)
+        print(json.dumps(get_job_details(client, args.job_id)))
 
     elif args.command == "get_sessions":
         pw, srv, port, ssl = resolve_conn(args, config)
