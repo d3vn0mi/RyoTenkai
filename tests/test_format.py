@@ -35,6 +35,18 @@ def test_format_sessions():
     assert "meterpreter" in out and "10.0.0.5" in out
 
 
+def test_format_routes():
+    out = ryotenkai.format_routes(
+        [{"subnet": "10.1.1.0", "netmask": "255.255.255.0", "gateway": "Session 1"}]
+    )
+    assert "10.1.1.0" in out and "255.255.255.0" in out and "Session 1" in out
+    assert "Subnet" in out and "Gateway" in out
+
+
+def test_format_routes_empty():
+    assert ryotenkai.format_routes([]) == "(none)"
+
+
 def test_format_exploit_result_success():
     out = ryotenkai.format_exploit_result({"status": "success", "raw_output": "PID 99"})
     assert "PID 99" in out

