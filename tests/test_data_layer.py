@@ -151,6 +151,27 @@ def test_read_session_timeout_breaks(monkeypatch):
     assert session.read.call_count == 1
 
 
+def test_run_console_cmd_returns_output(monkeypatch):
+    monkeypatch.setattr(ryotenkai.time, "sleep", lambda *_: None)
+    client = MagicMock()
+    console = client.consoles.console.return_value
+    console.read.side_effect = [{"data": "Framework: 6.4.0\n", "busy": False}]
+    result = ryotenkai.run_console_cmd(client, "version")
+    console.write.assert_called_once_with("version\n")
+    console.destroy.assert_called_once()
+    assert result["status"] == "success"
+    assert result["command"] == "version"
+    assert "6.4.0" in result["raw_output"]
+
+
+def test_run_console_cmd_handles_rpc_error():
+    client = MagicMock()
+    client.consoles.console.side_effect = ryotenkai.MsfRpcError("boom")
+    result = ryotenkai.run_console_cmd(client, "version")
+    assert result["status"] == "error"
+    assert "boom" in result["message"]
+
+
 ROUTE_PRINT_OUTPUT = (
     "IPv4 Active Routing Table\n"
     "=========================\n"

@@ -153,6 +153,14 @@ def parse_arguments(config):
     rpc_parser.add_argument('--rpc-port', help='Port for the RPC server.', type=int, default=55552)
     rpc_parser.add_argument('--rpc-ssl', action='store_true',default=False, help='Use SSL for RPC connection.')
 
+    # Run an arbitrary msfconsole command (non-interactive)
+    console_parser = subparsers.add_parser(
+        'run_console', help='Run an arbitrary msfconsole command and return its output as JSON.')
+    console_parser.add_argument(
+        'console_command', nargs='+',
+        help='The msfconsole command to run (e.g., "version" or "route print").')
+    add_rpc_args(console_parser)
+
     # Interactive REPL
     interactive_parser = subparsers.add_parser('interactive', help='Launch the interactive console.')
     add_rpc_args(interactive_parser)
@@ -372,6 +380,22 @@ def _run_console_command(client, command):
             console.destroy()
         except Exception:
             logging.debug("console destroy failed", exc_info=True)
+
+
+def run_console_cmd(client, command):
+    """Run an arbitrary msfconsole command via a transient console.
+
+    Returns a structured result (same shape as run_exploit) so the
+    non-interactive CLI can emit JSON. Lets the caller reach console-only
+    features (version, route, db_nmap, ...) without a dedicated subcommand.
+    """
+    try:
+        return {"status": "success", "command": command,
+                "raw_output": _run_console_command(client, command)}
+    except MsfRpcError as e:
+        return {"status": "error", "message": f"Metasploit RPC error: {str(e)}"}
+    except Exception as e:
+        return {"status": "error", "message": f"An unexpected error occurred: {str(e)}"}
 
 
 _IP_RE = re.compile(r"^\d{1,3}(?:\.\d{1,3}){3}$")
@@ -794,6 +818,12 @@ def main():
         pw, srv, port, ssl = resolve_conn(args, config)
         client = make_client(pw, srv, port, ssl)
         print(json.dumps(access_session(client, args.session_id, args.commands), indent=4))
+
+    elif args.command == "run_console":
+        pw, srv, port, ssl = resolve_conn(args, config)
+        client = make_client(pw, srv, port, ssl)
+        command = " ".join(args.console_command)
+        print(json.dumps(run_console_cmd(client, command), indent=4))
 
     elif args.command == "generate_payload":
         print(json.dumps(generate_payload(args.format, args.payload, args.lhost,
