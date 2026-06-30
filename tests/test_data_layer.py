@@ -151,6 +151,72 @@ def test_read_session_timeout_breaks(monkeypatch):
     assert session.read.call_count == 1
 
 
+ROUTE_PRINT_OUTPUT = (
+    "IPv4 Active Routing Table\n"
+    "=========================\n"
+    "\n"
+    "   Subnet             Netmask            Gateway\n"
+    "   ------             -------            -------\n"
+    "   10.1.1.0           255.255.255.0      Session 1\n"
+    "   10.2.2.0           255.255.255.0      Session 2\n"
+)
+
+
+def test_parse_routes_extracts_rows():
+    routes = ryotenkai.parse_routes(ROUTE_PRINT_OUTPUT)
+    assert routes == [
+        {"subnet": "10.1.1.0", "netmask": "255.255.255.0", "gateway": "Session 1"},
+        {"subnet": "10.2.2.0", "netmask": "255.255.255.0", "gateway": "Session 2"},
+    ]
+
+
+def test_parse_routes_handles_no_routes():
+    assert ryotenkai.parse_routes(
+        "[*] There are currently no routes defined.\n") == []
+
+
+def test_get_routes_drives_console(monkeypatch):
+    monkeypatch.setattr(ryotenkai.time, "sleep", lambda *_: None)
+    client = MagicMock()
+    console = client.consoles.console.return_value
+    console.read.side_effect = [{"data": ROUTE_PRINT_OUTPUT, "busy": False}]
+    routes = ryotenkai.get_routes(client)
+    console.write.assert_called_once_with("route print\n")
+    console.destroy.assert_called_once()
+    assert len(routes) == 2
+    assert routes[0]["subnet"] == "10.1.1.0"
+
+
+def test_add_route_writes_command(monkeypatch):
+    monkeypatch.setattr(ryotenkai.time, "sleep", lambda *_: None)
+    client = MagicMock()
+    console = client.consoles.console.return_value
+    console.read.side_effect = [{"data": "", "busy": False}]
+    result = ryotenkai.add_route(client, "10.1.1.0", "255.255.255.0", "1")
+    console.write.assert_called_once_with("route add 10.1.1.0 255.255.255.0 1\n")
+    assert result["status"] == "success"
+    assert "10.1.1.0" in result["message"]
+
+
+def test_remove_route_writes_command(monkeypatch):
+    monkeypatch.setattr(ryotenkai.time, "sleep", lambda *_: None)
+    client = MagicMock()
+    console = client.consoles.console.return_value
+    console.read.side_effect = [{"data": "", "busy": False}]
+    ryotenkai.remove_route(client, "10.1.1.0", "255.255.255.0", "1")
+    console.write.assert_called_once_with("route remove 10.1.1.0 255.255.255.0 1\n")
+
+
+def test_flush_routes_writes_command(monkeypatch):
+    monkeypatch.setattr(ryotenkai.time, "sleep", lambda *_: None)
+    client = MagicMock()
+    console = client.consoles.console.return_value
+    console.read.side_effect = [{"data": "", "busy": False}]
+    result = ryotenkai.flush_routes(client)
+    console.write.assert_called_once_with("route flush\n")
+    assert result["status"] == "success"
+
+
 def test_parse_options_equals_form():
     assert ryotenkai.parse_options(["LHOST=10.0.0.1", "LPORT=4444"]) == {
         "LHOST": "10.0.0.1",

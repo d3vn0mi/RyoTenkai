@@ -354,6 +354,73 @@ def access_session(client, session_id, command_sequence):
 
 
 
+# Functionality 6: Manage pivot routes through sessions
+def _run_console_command(client, command):
+    """Run a single command in a transient MSF console and return its output.
+
+    MSF pivot routes live in the framework routing table, which the RPC API only
+    exposes through the console (there is no `route.*` RPC group), so route
+    management is done by driving a short-lived console. The console is destroyed
+    afterwards so these calls do not leak consoles on the server.
+    """
+    console = client.consoles.console()
+    try:
+        console.write(command + "\n")
+        return _read_console(console)
+    finally:
+        try:
+            console.destroy()
+        except Exception:
+            logging.debug("console destroy failed", exc_info=True)
+
+
+_IP_RE = re.compile(r"^\d{1,3}(?:\.\d{1,3}){3}$")
+
+
+def parse_routes(output):
+    """Parse `route print` console output into a list of route dicts.
+
+    Data rows look like `10.1.1.0  255.255.255.0  Session 1`; header, separator
+    and status lines (e.g. "There are currently no routes defined.") are skipped
+    because their first two tokens are not dotted-quad IPv4 addresses.
+    """
+    routes = []
+    for line in (output or "").splitlines():
+        parts = line.split()
+        if len(parts) >= 3 and _IP_RE.match(parts[0]) and _IP_RE.match(parts[1]):
+            routes.append({"subnet": parts[0], "netmask": parts[1],
+                           "gateway": " ".join(parts[2:])})
+    return routes
+
+
+def get_routes(client):
+    """Return active MSF pivot routes as a list of {subnet, netmask, gateway}."""
+    return parse_routes(_run_console_command(client, "route print"))
+
+
+def add_route(client, subnet, netmask, session_id):
+    """Add a pivot route for subnet/netmask through a session."""
+    output = _run_console_command(client, f"route add {subnet} {netmask} {session_id}")
+    return {"status": "success", "raw_output": output,
+            "message": output.strip()
+            or f"Route added: {subnet} {netmask} via session {session_id}"}
+
+
+def remove_route(client, subnet, netmask, session_id):
+    """Remove a pivot route for subnet/netmask through a session."""
+    output = _run_console_command(client, f"route remove {subnet} {netmask} {session_id}")
+    return {"status": "success", "raw_output": output,
+            "message": output.strip()
+            or f"Route removed: {subnet} {netmask} via session {session_id}"}
+
+
+def flush_routes(client):
+    """Remove all pivot routes."""
+    output = _run_console_command(client, "route flush")
+    return {"status": "success", "raw_output": output,
+            "message": output.strip() or "All routes flushed"}
+
+
 def parse_options(option_args):
     """Parse --option values. Accept OPTION=VALUE (preferred) or 'OPTION VALUE'."""
     options = {}
@@ -424,6 +491,12 @@ def format_sessions(sessions):
     return render_table(["ID", "Type", "Peer", "Info"], rows)
 
 
+def format_routes(routes):
+    rows = [[r.get("subnet", ""), r.get("netmask", ""), r.get("gateway", "")]
+            for r in (routes or [])]
+    return render_table(["Subnet", "Netmask", "Gateway"], rows)
+
+
 def format_exploit_result(result):
     if result.get("status") == "error":
         return f"[!] {result.get('message')}"
@@ -441,6 +514,8 @@ def build_completer():
         "back": None,
         "jobs": {"-k": None},
         "sessions": {"-i": None},
+        "routes": {"print": None, "add": None, "remove": None, "flush": None},
+        "route": {"print": None, "add": None, "remove": None, "flush": None},
         "generate": None,
         "connect": None,
         "help": None,
@@ -490,6 +565,8 @@ class RtkConsole:
         handler = {
             "jobs": self.do_jobs,
             "sessions": self.do_sessions,
+            "routes": self.do_routes,
+            "route": self.do_routes,
             "use": self.do_use,
             "set": self.do_set,
             "unset": self.do_unset,
@@ -524,6 +601,23 @@ class RtkConsole:
 
     def do_sessions(self, args):
         return self._emit(get_sessions(self.client), format_sessions)
+
+    def do_routes(self, args):
+        sub = args[0] if args else "print"
+        rest = args[1:]
+        if sub in ("print", "list", "-l"):
+            return self._emit(get_routes(self.client), format_routes)
+        if sub == "flush":
+            return self._emit(flush_routes(self.client),
+                              lambda d: d.get("message", ""))
+        if sub in ("add", "remove", "del", "delete"):
+            if len(rest) != 3:
+                return f"[!] usage: routes {sub} <subnet> <netmask> <session>"
+            fn = add_route if sub == "add" else remove_route
+            return self._emit(fn(self.client, rest[0], rest[1], rest[2]),
+                              lambda d: d.get("message", ""))
+        return ("[!] usage: routes [print] | routes add <subnet> <netmask> <session> "
+                "| routes remove <subnet> <netmask> <session> | routes flush")
 
     def do_use(self, args):
         if not args:
@@ -587,6 +681,10 @@ class RtkConsole:
             "  jobs -k <id>                 kill a job\n"
             "  sessions                     list active sessions\n"
             "  sessions -i <id>             interact with a session\n"
+            "  routes [print]               list active pivot routes\n"
+            "  routes add <subnet> <netmask> <session>     add a pivot route\n"
+            "  routes remove <subnet> <netmask> <session>  remove a pivot route\n"
+            "  routes flush                 remove all pivot routes\n"
             "  use <module>                 select a module\n"
             "  set <OPT> <VAL>              set a module option\n"
             "  unset <OPT>                  clear a module option\n"

@@ -58,6 +58,50 @@ def test_sessions_interact_returns_action(console):
     assert keep is True
 
 
+def test_routes_print_calls_data_layer(console, monkeypatch):
+    monkeypatch.setattr(ryotenkai, "get_routes",
+                        lambda client: [{"subnet": "10.1.1.0",
+                                         "netmask": "255.255.255.0",
+                                         "gateway": "Session 1"}])
+    out, keep, action = console.dispatch("routes")
+    assert "10.1.1.0" in out and "Session 1" in out
+    assert keep is True
+
+
+def test_routes_add_calls_data_layer(console, monkeypatch):
+    seen = {}
+    monkeypatch.setattr(ryotenkai, "add_route",
+                        lambda client, s, n, sid: seen.update(args=(s, n, sid))
+                        or {"status": "success", "message": "Route added"})
+    out, keep, action = console.dispatch("routes add 10.1.1.0 255.255.255.0 1")
+    assert seen["args"] == ("10.1.1.0", "255.255.255.0", "1")
+    assert "Route added" in out
+
+
+def test_route_alias_remove(console, monkeypatch):
+    seen = {}
+    monkeypatch.setattr(ryotenkai, "remove_route",
+                        lambda client, s, n, sid: seen.update(args=(s, n, sid))
+                        or {"status": "success", "message": "Route removed"})
+    console.dispatch("route remove 10.1.1.0 255.255.255.0 1")
+    assert seen["args"] == ("10.1.1.0", "255.255.255.0", "1")
+
+
+def test_routes_flush_calls_data_layer(console, monkeypatch):
+    called = {}
+    monkeypatch.setattr(ryotenkai, "flush_routes",
+                        lambda client: called.update(hit=True)
+                        or {"status": "success", "message": "All routes flushed"})
+    out, keep, action = console.dispatch("routes flush")
+    assert called.get("hit") is True
+    assert "flushed" in out.lower()
+
+
+def test_routes_add_usage_error(console):
+    out, keep, action = console.dispatch("routes add 10.1.1.0")
+    assert "usage" in out.lower()
+
+
 def test_exit_stops_loop(console):
     out, keep, action = console.dispatch("exit")
     assert keep is False
