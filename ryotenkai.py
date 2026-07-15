@@ -131,6 +131,11 @@ def parse_arguments(config):
     sessions_parser = subparsers.add_parser('get_sessions', help='Poll the active Metasploit sessions.')
     add_rpc_args(sessions_parser)
 
+    # Kill a session
+    kill_session_parser = subparsers.add_parser('kill_session', help='Kill an active Metasploit session by id.')
+    kill_session_parser.add_argument('session_id', help='The ID of the session to kill.')
+    add_rpc_args(kill_session_parser)
+
     # Access session and run command
     access_parser = subparsers.add_parser('run_command', help='Access a Metasploit session and run a command.')
     access_parser.add_argument('session_id', help='The ID of the session to access.')
@@ -828,6 +833,11 @@ def main():
         pw, srv, port, ssl = resolve_conn(args, config)
         client = make_client(pw, srv, port, ssl)
         print(json.dumps(get_sessions(client)))
+
+    elif args.command == "kill_session":
+        pw, srv, port, ssl = resolve_conn(args, config)
+        client = make_client(pw, srv, port, ssl)
+        print(json.dumps(kill_session(client, args.session_id), indent=4))
 
     elif args.command == "run_command":
         pw, srv, port, ssl = resolve_conn(args, config)
