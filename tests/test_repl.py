@@ -58,6 +58,35 @@ def test_sessions_interact_returns_action(console):
     assert keep is True
 
 
+def test_sessions_kill_calls_data_layer(console):
+    out, keep, action = console.dispatch("sessions -k 3")
+    console.client.sessions.session.assert_called_once_with("3")
+    console.client.sessions.session.return_value.stop.assert_called_once_with()
+    assert keep is True
+
+
+def test_sessions_kill_without_id_shows_usage(console):
+    out, keep, action = console.dispatch("sessions -k")
+    assert "usage" in out
+    console.client.sessions.session.return_value.stop.assert_not_called()
+
+
+def test_interact_session_exit_kills(console):
+    inputs = iter(["exit"])
+    console.interact_session("4", read_line=lambda: next(inputs),
+                             write_out=lambda *_: None)
+    console.client.sessions.session.assert_called_once_with("4")
+    console.client.sessions.session.return_value.stop.assert_called_once_with()
+
+
+def test_interact_session_background_does_not_kill(console, monkeypatch):
+    monkeypatch.setattr(ryotenkai, "run_session_command", lambda *a, **k: "x")
+    inputs = iter(["background"])
+    console.interact_session("4", read_line=lambda: next(inputs),
+                             write_out=lambda *_: None)
+    console.client.sessions.session.return_value.stop.assert_not_called()
+
+
 def test_routes_print_calls_data_layer(console, monkeypatch):
     monkeypatch.setattr(ryotenkai, "get_routes",
                         lambda client: [{"subnet": "10.1.1.0",
