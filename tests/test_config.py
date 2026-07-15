@@ -100,5 +100,18 @@ def test_main_get_jobs_prints_json(monkeypatch, capsys):
     assert data == {"0": "Exploit: multi/handler"}
 
 
+def test_main_kill_session_prints_json(monkeypatch, capsys):
+    monkeypatch.setattr("sys.argv", ["ryotenkai.py", "kill_session", "3"])
+    monkeypatch.setattr(ryotenkai, "load_config", lambda *_a, **_k: {})
+    fake = MagicMock()
+    monkeypatch.setattr(ryotenkai, "make_client", lambda *a, **k: fake)
+    ryotenkai.main()
+    data = json.loads(capsys.readouterr().out)
+    assert data["status"] == "success"
+    assert "3" in data["message"]
+    fake.sessions.session.assert_called_once_with("3")
+    fake.sessions.session.return_value.stop.assert_called_once_with()
+
+
 def test_main_is_callable():
     assert callable(ryotenkai.main)

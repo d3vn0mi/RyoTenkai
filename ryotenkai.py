@@ -131,6 +131,11 @@ def parse_arguments(config):
     sessions_parser = subparsers.add_parser('get_sessions', help='Poll the active Metasploit sessions.')
     add_rpc_args(sessions_parser)
 
+    # Kill a session
+    kill_session_parser = subparsers.add_parser('kill_session', help='Kill an active Metasploit session by id.')
+    kill_session_parser.add_argument('session_id', help='The ID of the session to kill.')
+    add_rpc_args(kill_session_parser)
+
     # Access session and run command
     access_parser = subparsers.add_parser('run_command', help='Access a Metasploit session and run a command.')
     access_parser.add_argument('session_id', help='The ID of the session to access.')
@@ -341,6 +346,12 @@ def kill_job(client, job_id):
     return {"status": "success", "message": f"Job {job_id} killed"}
 
 
+def kill_session(client, session_id):
+    """Stop (kill) an active session by id."""
+    client.sessions.session(str(session_id)).stop()
+    return {"status": "success", "message": f"Session {session_id} killed"}
+
+
 # Functionality 4: Access session and run chained commands (e.g., open shell and run a PowerShell command)
 def run_session_command(client, session_id, command):
     """Write one command to a session and return the polled output."""
@@ -537,7 +548,7 @@ def build_completer():
         "exploit": None,
         "back": None,
         "jobs": {"-k": None},
-        "sessions": {"-i": None},
+        "sessions": {"-i": None, "-k": None},
         "routes": {"print": None, "add": None, "remove": None, "flush": None},
         "route": {"print": None, "add": None, "remove": None, "flush": None},
         "generate": None,
@@ -624,6 +635,11 @@ class RtkConsole:
         return self._emit(get_job_details(self.client), format_job_details)
 
     def do_sessions(self, args):
+        if args and args[0] == "-k":
+            if len(args) < 2:
+                return "[!] usage: sessions -k <id>"
+            return self._emit(kill_session(self.client, args[1]),
+                              lambda d: d.get("message", ""))
         return self._emit(get_sessions(self.client), format_sessions)
 
     def do_routes(self, args):
@@ -705,6 +721,7 @@ class RtkConsole:
             "  jobs -k <id>                 kill a job\n"
             "  sessions                     list active sessions\n"
             "  sessions -i <id>             interact with a session\n"
+            "  sessions -k <id>             kill a session\n"
             "  routes [print]               list active pivot routes\n"
             "  routes add <subnet> <netmask> <session>     add a pivot route\n"
             "  routes remove <subnet> <netmask> <session>  remove a pivot route\n"
@@ -723,11 +740,11 @@ class RtkConsole:
         )
 
     def interact_session(self, session_id, read_line, write_out):
-        """Loop reading lines and running them in a session. Exits on
-        'background'/'exit'/'quit'/'back', EOF, or KeyboardInterrupt. The
-        session is left alive in the background."""
+        """Loop reading lines and running them in a session. 'background'/'back',
+        EOF, or KeyboardInterrupt detach and leave the session alive;
+        'exit'/'quit' kill the session (msfconsole semantics)."""
         write_out(f"[*] Interacting with session {session_id}. "
-                  f"'background' or Ctrl-D to return.")
+                  f"'background' or Ctrl-D to detach, 'exit' to kill.")
         while True:
             try:
                 line = read_line()
@@ -736,7 +753,10 @@ class RtkConsole:
             if line is None:
                 break
             line = line.strip()
-            if line in ("background", "exit", "quit", "back"):
+            if line in ("background", "back"):
+                break
+            if line in ("exit", "quit"):
+                write_out(kill_session(self.client, session_id).get("message", ""))
                 break
             if not line:
                 continue
@@ -813,6 +833,11 @@ def main():
         pw, srv, port, ssl = resolve_conn(args, config)
         client = make_client(pw, srv, port, ssl)
         print(json.dumps(get_sessions(client)))
+
+    elif args.command == "kill_session":
+        pw, srv, port, ssl = resolve_conn(args, config)
+        client = make_client(pw, srv, port, ssl)
+        print(json.dumps(kill_session(client, args.session_id), indent=4))
 
     elif args.command == "run_command":
         pw, srv, port, ssl = resolve_conn(args, config)
