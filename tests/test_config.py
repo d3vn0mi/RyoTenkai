@@ -87,6 +87,28 @@ def test_parse_arguments_ssl_flag_false(monkeypatch):
     assert args.rpc_ssl is False
 
 
+def test_run_module_parses_timeout_flag(monkeypatch):
+    monkeypatch.setattr("sys.argv", ["ryotenkai.py", "run_module", "multi/handler",
+                                     "--option", "LHOST=1.2.3.4", "--timeout", "45"])
+    args = ryotenkai.parse_arguments({})
+    assert args.command == "run_module"
+    assert args.timeout == 45
+
+
+def test_run_module_timeout_defaults_from_config(monkeypatch):
+    monkeypatch.setattr("sys.argv", ["ryotenkai.py", "run_module", "m",
+                                     "--option", "X=Y"])
+    args = ryotenkai.parse_arguments({"timeout": "25"})
+    assert args.timeout == 25
+
+
+def test_run_module_timeout_default_when_absent(monkeypatch):
+    monkeypatch.setattr("sys.argv", ["ryotenkai.py", "run_module", "m",
+                                     "--option", "X=Y"])
+    args = ryotenkai.parse_arguments({})
+    assert args.timeout == ryotenkai.CONSOLE_TIMEOUT
+
+
 def test_main_get_jobs_prints_json(monkeypatch, capsys):
     monkeypatch.setattr("sys.argv", ["ryotenkai.py", "get_jobs"])
     monkeypatch.setattr(ryotenkai, "load_config", lambda *_a, **_k: {})

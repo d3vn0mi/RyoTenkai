@@ -112,6 +112,33 @@ def test_run_exploit_returns_success(monkeypatch):
     assert "PID 1234" in result["raw_output"]
 
 
+def test_run_exploit_forwards_timeout(monkeypatch):
+    captured = {}
+
+    def fake_read(console, timeout=ryotenkai.CONSOLE_TIMEOUT, interval=ryotenkai.POLL_INTERVAL):
+        captured["timeout"] = timeout
+        return "PID 1234\n"
+
+    monkeypatch.setattr(ryotenkai, "_read_console", fake_read)
+    client = MagicMock()
+    result = ryotenkai.run_exploit(client, "exploit/multi/handler",
+                                   {"LHOST": "10.0.0.1"}, timeout=42)
+    assert captured["timeout"] == 42
+    assert result["status"] == "success"
+
+
+def test_run_exploit_default_timeout(monkeypatch):
+    captured = {}
+
+    def fake_read(console, timeout=ryotenkai.CONSOLE_TIMEOUT, interval=ryotenkai.POLL_INTERVAL):
+        captured["timeout"] = timeout
+        return "ok\n"
+
+    monkeypatch.setattr(ryotenkai, "_read_console", fake_read)
+    ryotenkai.run_exploit(MagicMock(), "x", {})
+    assert captured["timeout"] == ryotenkai.CONSOLE_TIMEOUT
+
+
 def test_run_exploit_handles_rpc_error():
     client = MagicMock()
     client.consoles.console.side_effect = ryotenkai.MsfRpcError("boom")
@@ -149,6 +176,78 @@ def test_read_session_timeout_breaks(monkeypatch):
     out = ryotenkai._read_session(session, timeout=0, interval=0, quiet_rounds=5)
     assert out == "chunk\n"
     assert session.read.call_count == 1
+
+
+def test_read_session_waits_for_first_byte(monkeypatch):
+    # Slow session: two empty polls BEFORE any output. The old single-phase loop
+    # broke on quiet_rounds=2 and returned "" here; the two-phase loop must wait.
+    monkeypatch.setattr(ryotenkai.time, "sleep", lambda *_: None)
+    session = MagicMock()
+    session.read.side_effect = ["", "", "uid=0\n", "", ""]
+    out = ryotenkai._read_session(session, timeout=30, interval=0, quiet_rounds=2,
+                                  first_byte_timeout=30)
+    assert out == "uid=0\n"
+    assert session.read.call_count == 5
+
+
+def test_read_session_no_output_returns_after_first_byte_timeout(monkeypatch):
+    monkeypatch.setattr(ryotenkai.time, "sleep", lambda *_: None)
+    session = MagicMock()
+    session.read.side_effect = ["", "", ""]
+    out = ryotenkai._read_session(session, timeout=30, interval=0, quiet_rounds=2,
+                                  first_byte_timeout=0)
+    assert out == ""
+    assert session.read.call_count == 1
+
+
+def test_run_session_command_forwards_read_params(monkeypatch):
+    captured = {}
+
+    def fake_read(session, **kw):
+        captured.update(kw)
+        return "x"
+
+    monkeypatch.setattr(ryotenkai, "_read_session", fake_read)
+    client = MagicMock()
+    ryotenkai.run_session_command(client, "4", "sysinfo", timeout=30,
+                                  first_byte_timeout=15, quiet_rounds=6)
+    assert captured == {"timeout": 30, "first_byte_timeout": 15, "quiet_rounds": 6}
+    client.sessions.session.return_value.write.assert_called_once_with("sysinfo\n")
+
+
+def test_read_params_for_type_meterpreter_vs_shell():
+    met = ryotenkai._read_params_for_type("meterpreter")
+    assert met["timeout"] == ryotenkai.SESSION_METERPRETER_TIMEOUT
+    assert met["first_byte_timeout"] == ryotenkai.SESSION_METERPRETER_FIRST_BYTE_TIMEOUT
+    shell = ryotenkai._read_params_for_type("shell")
+    assert shell["timeout"] == ryotenkai.SESSION_TIMEOUT
+    assert shell["first_byte_timeout"] == ryotenkai.SESSION_FIRST_BYTE_TIMEOUT
+    # Unknown/empty type falls back to the fast shell window.
+    assert ryotenkai._read_params_for_type("") == shell
+
+
+def test_session_type_reads_from_session_list(mock_client):
+    mock_client.sessions.list = {"4": {"type": "meterpreter"}}
+    assert ryotenkai._session_type(mock_client, "4") == "meterpreter"
+    assert ryotenkai._session_type(mock_client, "9") == ""
+
+
+def test_session_read_params_selects_by_type(mock_client):
+    mock_client.sessions.list = {"4": {"type": "meterpreter"}, "5": {"type": "shell"}}
+    assert ryotenkai._session_read_params(mock_client, "4")["quiet_rounds"] == \
+        ryotenkai.SESSION_METERPRETER_QUIET_ROUNDS
+    assert ryotenkai._session_read_params(mock_client, "5")["quiet_rounds"] == \
+        ryotenkai.SESSION_QUIET_ROUNDS
+
+
+def test_access_session_uses_type_params(monkeypatch, mock_client):
+    mock_client.sessions.list = {"4": {"type": "meterpreter"}}
+    seen = []
+    monkeypatch.setattr(ryotenkai, "run_session_command",
+                        lambda client, sid, cmd, **kw: seen.append(kw) or f"out:{cmd}")
+    ryotenkai.access_session(mock_client, "4", ["sysinfo", "getuid"])
+    assert len(seen) == 2
+    assert all(kw["timeout"] == ryotenkai.SESSION_METERPRETER_TIMEOUT for kw in seen)
 
 
 def test_run_console_cmd_returns_output(monkeypatch):
