@@ -18,6 +18,17 @@ POLL_INTERVAL = 0.5
 CONSOLE_TIMEOUT = 15
 SESSION_TIMEOUT = 10
 SESSION_QUIET_ROUNDS = 2
+# How long to wait for a session's FIRST output byte before giving up (shell
+# sessions answer sub-second). Kept separate from the quiet-round settling so a
+# slow session is not mistaken for a finished one.
+SESSION_FIRST_BYTE_TIMEOUT = 5
+# Meterpreter round-trips are asynchronous and slow — pymetasploit3's own
+# run_with_output sleeps 1s then polls every 1s for up to ~300s — so a
+# meterpreter session gets a wider first-byte wait, overall window, and quiet
+# settling than a fast shell session.
+SESSION_METERPRETER_TIMEOUT = 30
+SESSION_METERPRETER_FIRST_BYTE_TIMEOUT = 15
+SESSION_METERPRETER_QUIET_ROUNDS = 6
 
 HISTORY_PATH = os.path.expanduser("~/.rtk_history")
 BANNER = "RyoTenkai interactive console. Type 'help' for commands, 'exit' to quit."
@@ -112,6 +123,9 @@ def parse_arguments(config):
     run_parser.add_argument('module', help='The Metasploit module to use (e.g., exploit/multi/script/web_delivery).')
     run_parser.add_argument('--option', action='append', help='Module options in the form OPTION=VALUE.', required=True)
     run_parser.add_argument('--regex', help='Regex pattern to filter output.', default=config.get('regex', r"Run the following command on the target machine:\n(.*)"))
+    run_parser.add_argument(
+        '--timeout', type=int, default=int(config.get('timeout', CONSOLE_TIMEOUT)),
+        help='Seconds to poll for module console output (config [default] timeout / default %(default)s).')
     add_rpc_args(run_parser)
 
     # Get jobs
@@ -196,14 +210,29 @@ def _read_console(console, timeout=CONSOLE_TIMEOUT, interval=POLL_INTERVAL):
 
 
 def _read_session(session, timeout=SESSION_TIMEOUT, interval=POLL_INTERVAL,
-                  quiet_rounds=SESSION_QUIET_ROUNDS):
-    """Read a session, stopping after output goes quiet for `quiet_rounds` polls.
+                  quiet_rounds=SESSION_QUIET_ROUNDS, first_byte_timeout=None):
+    """Read a session until its output settles.
 
-    Settles for one interval first so a slow session does not immediately hit
-    the quiet-round limit and return empty before output arrives.
+    SessionMeterpreterRead / SessionShellRead expose no "busy" flag, so
+    completion is inferred in two phases:
+
+    1. Wait up to `first_byte_timeout` for the first byte. The quiet counter does
+       NOT run before any output has arrived, so a slow meterpreter command
+       (whose first response commonly lands seconds after the write) is never cut
+       off returning an empty string — the old single-phase loop broke after
+       ~1s of leading silence and lost the output entirely.
+    2. Once output has started, stop after `quiet_rounds` consecutive empty polls
+       (end of the burst) or when the overall `timeout` is hit.
+
+    A command that legitimately produces no output returns "" after
+    `first_byte_timeout`.
     """
+    if first_byte_timeout is None:
+        first_byte_timeout = SESSION_FIRST_BYTE_TIMEOUT
     time.sleep(interval)
-    deadline = time.monotonic() + timeout
+    start = time.monotonic()
+    deadline = start + timeout
+    first_byte_deadline = start + first_byte_timeout
     chunks = []
     quiet = 0
     while True:
@@ -211,10 +240,14 @@ def _read_session(session, timeout=SESSION_TIMEOUT, interval=POLL_INTERVAL,
         if data:
             chunks.append(data)
             quiet = 0
-        else:
+        elif chunks:
+            # output has started: count quiet rounds to detect end of burst
             quiet += 1
             if quiet >= quiet_rounds:
                 break
+        elif time.monotonic() >= first_byte_deadline:
+            # nothing has arrived within the first-byte window; give up
+            break
         if time.monotonic() >= deadline:
             break
         time.sleep(interval)
@@ -222,15 +255,20 @@ def _read_session(session, timeout=SESSION_TIMEOUT, interval=POLL_INTERVAL,
 
 
 # Functionality 1: Run any Metasploit module
-def run_exploit(client, module_name, options, regex=None):
-    """Run a module via a console (`run -j`) and return structured output."""
+def run_exploit(client, module_name, options, regex=None, timeout=CONSOLE_TIMEOUT):
+    """Run a module via a console (`run -j`) and return structured output.
+
+    `timeout` bounds how long the console output is polled (seconds); slow
+    modules (payload staging, `db_nmap`, brute-force aux) can need more than the
+    default CONSOLE_TIMEOUT.
+    """
     try:
         console = client.consoles.console()
         console.write(f"use {module_name}\n")
         for option, value in options.items():
             console.write(f"set {option} {value}\n")
         console.write("run -j\n")
-        output = _read_console(console)
+        output = _read_console(console, timeout=timeout)
 
         filtered_output = None
         if regex:
@@ -353,18 +391,61 @@ def kill_session(client, session_id):
 
 
 # Functionality 4: Access session and run chained commands (e.g., open shell and run a PowerShell command)
-def run_session_command(client, session_id, command):
-    """Write one command to a session and return the polled output."""
+def _read_params_for_type(session_type):
+    """Read-window kwargs tuned to a session type. Meterpreter is slow/async and
+    gets a wider window; anything else uses the fast shell defaults."""
+    if str(session_type).lower() == "meterpreter":
+        return {"timeout": SESSION_METERPRETER_TIMEOUT,
+                "first_byte_timeout": SESSION_METERPRETER_FIRST_BYTE_TIMEOUT,
+                "quiet_rounds": SESSION_METERPRETER_QUIET_ROUNDS}
+    return {"timeout": SESSION_TIMEOUT,
+            "first_byte_timeout": SESSION_FIRST_BYTE_TIMEOUT,
+            "quiet_rounds": SESSION_QUIET_ROUNDS}
+
+
+def _session_type(client, session_id):
+    """Best-effort session type ("meterpreter"/"shell"/"") from the session list.
+    Uses the session-list RPC, never sessions.session(), and never raises."""
+    try:
+        info = (get_sessions(client) or {}).get(str(session_id))
+        return str(info.get("type", "")).lower() if isinstance(info, dict) else ""
+    except Exception:
+        logging.debug("session type lookup failed", exc_info=True)
+        return ""
+
+
+def _session_read_params(client, session_id):
+    """Read-window kwargs matched to the live session's type."""
+    return _read_params_for_type(_session_type(client, session_id))
+
+
+def run_session_command(client, session_id, command, timeout=None,
+                        first_byte_timeout=None, quiet_rounds=None):
+    """Write one command to a session and return the polled output.
+
+    `timeout`/`first_byte_timeout`/`quiet_rounds` override the read window; the
+    interactive and `run_command` paths pass meterpreter-appropriate values (see
+    _session_read_params). Left as None, the shell-tuned _read_session defaults
+    apply, so the plain 3-arg call is unchanged.
+    """
     session = client.sessions.session(session_id)
     session.write(command + "\n")
-    return _read_session(session)
+    read_kwargs = {}
+    if timeout is not None:
+        read_kwargs["timeout"] = timeout
+    if first_byte_timeout is not None:
+        read_kwargs["first_byte_timeout"] = first_byte_timeout
+    if quiet_rounds is not None:
+        read_kwargs["quiet_rounds"] = quiet_rounds
+    return _read_session(session, **read_kwargs)
 
 
 def access_session(client, session_id, command_sequence):
     """Run a sequence of commands in a session; return the final result."""
+    read_params = _session_read_params(client, session_id)
     results = []
     for command in command_sequence:
-        results.append(run_session_command(client, session_id, command))
+        results.append(run_session_command(client, session_id, command, **read_params))
     return {
         "session_id": session_id,
         "command_sequence": command_sequence,
@@ -740,10 +821,24 @@ class RtkConsole:
         )
 
     def interact_session(self, session_id, read_line, write_out):
-        """Loop reading lines and running them in a session. 'background'/'back',
-        EOF, or KeyboardInterrupt detach and leave the session alive;
-        'exit'/'quit' kill the session (msfconsole semantics)."""
-        write_out(f"[*] Interacting with session {session_id}. "
+        """Loop reading lines and running them in a session.
+
+        'background'/'back', EOF, or Ctrl-C at the prompt detach and leave the
+        session alive; 'exit'/'quit' kill the session (msfconsole semantics).
+
+        A command against a dead or unknown session, or any RPC failure, is
+        reported and detaches instead of tearing down the whole REPL (which
+        would lose the operator's loaded module/options). Ctrl-C during a
+        running command aborts that command and returns to the session prompt.
+
+        Deferred (workflow review, low impact): the pre-attach buffer is not
+        drained, so the first command may echo straggler output; the session
+        object is re-fetched per command.
+        """
+        stype = _session_type(self.client, session_id)
+        read_params = _read_params_for_type(stype)
+        label = f"{stype} session {session_id}" if stype else f"session {session_id}"
+        write_out(f"[*] Interacting with {label}. "
                   f"'background' or Ctrl-D to detach, 'exit' to kill.")
         while True:
             try:
@@ -756,11 +851,22 @@ class RtkConsole:
             if line in ("background", "back"):
                 break
             if line in ("exit", "quit"):
-                write_out(kill_session(self.client, session_id).get("message", ""))
+                try:
+                    write_out(kill_session(self.client, session_id).get("message", ""))
+                except Exception as e:
+                    write_out(f"[!] failed to kill session {session_id}: {e}")
                 break
             if not line:
                 continue
-            write_out(run_session_command(self.client, session_id, line))
+            try:
+                write_out(run_session_command(self.client, session_id, line,
+                                              **read_params))
+            except KeyboardInterrupt:
+                write_out("[!] command interrupted (session still attached)")
+                continue
+            except Exception as e:
+                write_out(f"[!] session {session_id} error: {e} — detaching")
+                break
 
     def cmdloop(self, session=None):
         """Run the interactive loop using prompt_toolkit."""
@@ -779,12 +885,18 @@ class RtkConsole:
                 print(output)
             if action and action[0] == "interact":
                 sid = action[1]
-                session_prompt = PromptSession()
-                self.interact_session(
-                    sid,
-                    read_line=lambda: session_prompt.prompt(f"session {sid} > "),
-                    write_out=print,
-                )
+                session_prompt = PromptSession(
+                    history=FileHistory(HISTORY_PATH + ".session"))
+                try:
+                    self.interact_session(
+                        sid,
+                        read_line=lambda: session_prompt.prompt(f"session {sid} > "),
+                        write_out=print,
+                    )
+                except (EOFError, KeyboardInterrupt):
+                    pass
+                except Exception as e:
+                    print(f"[!] session interaction aborted: {e}")
             if not keep_going:
                 break
 
@@ -817,7 +929,8 @@ def main():
         pw, srv, port, ssl = resolve_conn(args, config)
         client = make_client(pw, srv, port, ssl)
         options = parse_options(args.option)
-        print(json.dumps(run_exploit(client, args.module, options, args.regex), indent=4))
+        print(json.dumps(run_exploit(client, args.module, options, args.regex,
+                                     timeout=args.timeout), indent=4))
 
     elif args.command == "get_jobs":
         pw, srv, port, ssl = resolve_conn(args, config)

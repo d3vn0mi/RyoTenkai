@@ -189,7 +189,7 @@ def test_set_output_invalid(console):
 def test_interact_session_runs_commands(console, monkeypatch):
     sent = []
     monkeypatch.setattr(ryotenkai, "run_session_command",
-                        lambda client, sid, cmd: sent.append((sid, cmd)) or f"out:{cmd}")
+                        lambda client, sid, cmd, **kw: sent.append((sid, cmd)) or f"out:{cmd}")
     inputs = iter(["whoami", "id", "background"])
     written = []
 
@@ -210,3 +210,52 @@ def test_interact_session_exits_on_eof(console, monkeypatch):
 
     # Should return without raising.
     console.interact_session("4", read_line=read_line, write_out=lambda *_: None)
+
+
+def test_interact_session_survives_command_error(console, monkeypatch):
+    # A dead/unknown session raising from run_session_command must NOT propagate
+    # out of interact_session (which would tear down the whole REPL).
+    def boom(*a, **k):
+        raise KeyError("99")
+
+    monkeypatch.setattr(ryotenkai, "run_session_command", boom)
+    written = []
+    inputs = iter(["whoami", "background"])
+    # Must return normally, not raise KeyError.
+    console.interact_session("99", read_line=lambda: next(inputs),
+                             write_out=written.append)
+    assert any("error" in w.lower() for w in written)
+
+
+def test_interact_session_survives_kill_error(console, monkeypatch):
+    def boom(*a, **k):
+        raise ryotenkai.MsfRpcError("rpc down")
+
+    monkeypatch.setattr(ryotenkai, "kill_session", boom)
+    written = []
+    inputs = iter(["exit"])
+    # 'exit' kill failing must be caught, not propagated.
+    console.interact_session("4", read_line=lambda: next(inputs),
+                             write_out=written.append)
+    assert any("kill" in w.lower() for w in written)
+
+
+def test_interact_session_meterpreter_uses_wide_window(console, monkeypatch):
+    console.client.sessions.list = {"4": {"type": "meterpreter"}}
+    seen = {}
+    monkeypatch.setattr(ryotenkai, "run_session_command",
+                        lambda client, sid, cmd, **kw: seen.update(kw) or "ok")
+    inputs = iter(["sysinfo", "background"])
+    console.interact_session("4", read_line=lambda: next(inputs),
+                             write_out=lambda *_: None)
+    assert seen.get("first_byte_timeout") == ryotenkai.SESSION_METERPRETER_FIRST_BYTE_TIMEOUT
+    assert seen.get("timeout") == ryotenkai.SESSION_METERPRETER_TIMEOUT
+
+
+def test_interact_session_banner_shows_type(console):
+    console.client.sessions.list = {"4": {"type": "meterpreter"}}
+    written = []
+    inputs = iter(["background"])
+    console.interact_session("4", read_line=lambda: next(inputs),
+                             write_out=written.append)
+    assert any("meterpreter session 4" in w for w in written)
