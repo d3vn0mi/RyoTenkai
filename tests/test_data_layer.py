@@ -162,24 +162,24 @@ def test_run_exploit_default_timeout(monkeypatch):
     assert captured["timeout"] == ryotenkai.CONSOLE_TIMEOUT
 
 
-def test_run_exploit_foreground_by_default(monkeypatch):
+def test_run_exploit_background_by_default(monkeypatch):
     monkeypatch.setattr(ryotenkai, "_read_console", lambda *a, **k: "ok\n")
     client = MagicMock()
     console = client.consoles.console.return_value
-    ryotenkai.run_exploit(client, "auxiliary/scanner/x", {})
-    writes = [c.args[0] for c in console.write.call_args_list]
-    assert "run\n" in writes
-    assert "run -j\n" not in writes
-
-
-def test_run_exploit_background_uses_run_j(monkeypatch):
-    monkeypatch.setattr(ryotenkai, "_read_console", lambda *a, **k: "ok\n")
-    client = MagicMock()
-    console = client.consoles.console.return_value
-    ryotenkai.run_exploit(client, "exploit/multi/handler", {}, background=True)
+    ryotenkai.run_exploit(client, "exploit/multi/handler", {})
     writes = [c.args[0] for c in console.write.call_args_list]
     assert "run -j\n" in writes
     assert "run\n" not in writes
+
+
+def test_run_exploit_foreground_uses_plain_run(monkeypatch):
+    monkeypatch.setattr(ryotenkai, "_read_console", lambda *a, **k: "ok\n")
+    client = MagicMock()
+    console = client.consoles.console.return_value
+    ryotenkai.run_exploit(client, "auxiliary/scanner/x", {}, background=False)
+    writes = [c.args[0] for c in console.write.call_args_list]
+    assert "run\n" in writes
+    assert "run -j\n" not in writes
 
 
 def test_run_exploit_handles_rpc_error():
