@@ -127,8 +127,8 @@ def parse_arguments(config):
         '--timeout', type=int, default=int(config.get('timeout', CONSOLE_TIMEOUT)),
         help='Seconds to poll for module console output (config [default] timeout / default %(default)s).')
     run_parser.add_argument(
-        '--background', action='store_true',
-        help='Run the module as a background job (`run -j`) instead of foreground (`run`, the default).')
+        '--foreground', action='store_true',
+        help='Run the module foreground (`run`) instead of as a background job (`run -j`, the default). Use for aux/scanner modules to capture full blocking output.')
     add_rpc_args(run_parser)
 
     # Get jobs
@@ -259,17 +259,18 @@ def _read_session(session, timeout=SESSION_TIMEOUT, interval=POLL_INTERVAL,
 
 # Functionality 1: Run any Metasploit module
 def run_exploit(client, module_name, options, regex=None, timeout=CONSOLE_TIMEOUT,
-                background=False):
+                background=True):
     """Run a module via a console and return structured output.
 
     `background` selects msfconsole run semantics:
-      * False (default) -> `run`  : foreground. The console blocks until the
+      * True (default)  -> `run -j`: background job. Returns immediately with
+        "Job N started"; the right default for handler / web_delivery style
+        modules whose payload/regex output appears without blocking, and the
+        behavior existing playbooks depend on.
+      * False           -> `run`   : foreground. The console blocks until the
         module finishes (or `timeout` elapses), so aux/scanner modules return
         their full output. A session-spawning module (multi/handler, an
         exploit) will hold the console until it returns or the read times out.
-      * True            -> `run -j`: background job. Returns immediately with
-        "Job N started"; use for handler / web_delivery style modules whose
-        payload/regex output appears without blocking.
 
     `timeout` bounds how long the console output is polled (seconds); slow
     modules (payload staging, `db_nmap`, brute-force aux) can need more than the
@@ -991,7 +992,7 @@ def main():
         options = parse_options(args.option)
         print(json.dumps(run_exploit(client, args.module, options, args.regex,
                                      timeout=args.timeout,
-                                     background=args.background), indent=4))
+                                     background=not args.foreground), indent=4))
 
     elif args.command == "get_jobs":
         pw, srv, port, ssl = resolve_conn(args, config)

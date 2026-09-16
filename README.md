@@ -94,8 +94,9 @@ The CLI has two modes that share one data layer:
 # Run any module via a console and get structured output
 ryo run_module multi/handler --option LHOST=10.0.0.1 --option LPORT=4444
 #   options accept OPTION=VALUE (preferred) or "OPTION VALUE"
-#   runs foreground (`run`) by default; add --background for a background job (`run -j`)
-ryo run_module multi/handler --option LHOST=10.0.0.1 --option LPORT=4444 --background
+#   runs as a background job (`run -j`) by default; add --foreground (`run`)
+#   for aux/scanner modules to capture full blocking output
+ryo run_module auxiliary/scanner/http/title --option RHOSTS=10.0.0.0/24 --foreground
 
 # Poll active jobs / sessions (JSON)
 ryo get_jobs
