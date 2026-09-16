@@ -1,3 +1,4 @@
+import pytest
 import ryotenkai
 from unittest.mock import MagicMock
 
@@ -73,14 +74,36 @@ def test_kill_job_calls_stop_and_reports(mock_client):
 def test_make_client_passes_args(monkeypatch):
     captured = {}
 
-    def fake_client(password, server, port, ssl):
-        captured.update(password=password, server=server, port=port, ssl=ssl)
+    def fake_client(password, **kwargs):
+        captured.update(password=password, **kwargs)
         return "CLIENT"
 
     monkeypatch.setattr(ryotenkai, "MsfRpcClient", fake_client)
     out = ryotenkai.make_client("pw", "1.2.3.4", 55552, True)
     assert out == "CLIENT"
-    assert captured == {"password": "pw", "server": "1.2.3.4", "port": 55552, "ssl": True}
+    # Exact match: no stray kwargs, and decode_error_handling is requested so
+    # non-UTF-8 target output (Windows console/filesystem bytes) can't crash the
+    # RPC read at the choke point.
+    assert captured == {
+        "password": "pw", "server": "1.2.3.4", "port": 55552,
+        "ssl": True, "decode_error_handling": "backslashreplace",
+    }
+
+
+def test_non_utf8_rpc_data_survives_decode():
+    """A non-UTF-8 byte in RPC output crashes under 'strict' but is preserved
+    under the 'backslashreplace' handler make_client requests. Guards the exact
+    UnicodeDecodeError (byte 0xd0) that killed run_command mid-session."""
+    from pymetasploit3.utils import convert
+
+    payload = {b"data": b"C:\\Users\xd0Recycle more"}  # 0xd0 = invalid continuation
+
+    with pytest.raises(UnicodeDecodeError):
+        convert(payload, ["utf-8"], "strict")
+
+    out = convert(payload, ["utf-8"], "backslashreplace")
+    assert "C:\\Users" in out["data"]
+    assert "\\xd0" in out["data"]
 
 
 def test_read_console_polls_until_not_busy(monkeypatch):
@@ -137,6 +160,26 @@ def test_run_exploit_default_timeout(monkeypatch):
     monkeypatch.setattr(ryotenkai, "_read_console", fake_read)
     ryotenkai.run_exploit(MagicMock(), "x", {})
     assert captured["timeout"] == ryotenkai.CONSOLE_TIMEOUT
+
+
+def test_run_exploit_foreground_by_default(monkeypatch):
+    monkeypatch.setattr(ryotenkai, "_read_console", lambda *a, **k: "ok\n")
+    client = MagicMock()
+    console = client.consoles.console.return_value
+    ryotenkai.run_exploit(client, "auxiliary/scanner/x", {})
+    writes = [c.args[0] for c in console.write.call_args_list]
+    assert "run\n" in writes
+    assert "run -j\n" not in writes
+
+
+def test_run_exploit_background_uses_run_j(monkeypatch):
+    monkeypatch.setattr(ryotenkai, "_read_console", lambda *a, **k: "ok\n")
+    client = MagicMock()
+    console = client.consoles.console.return_value
+    ryotenkai.run_exploit(client, "exploit/multi/handler", {}, background=True)
+    writes = [c.args[0] for c in console.write.call_args_list]
+    assert "run -j\n" in writes
+    assert "run\n" not in writes
 
 
 def test_run_exploit_handles_rpc_error():
@@ -248,6 +291,47 @@ def test_access_session_uses_type_params(monkeypatch, mock_client):
     ryotenkai.access_session(mock_client, "4", ["sysinfo", "getuid"])
     assert len(seen) == 2
     assert all(kw["timeout"] == ryotenkai.SESSION_METERPRETER_TIMEOUT for kw in seen)
+
+
+def test_access_session_returns_all_results_on_success(monkeypatch, mock_client):
+    monkeypatch.setattr(ryotenkai, "run_session_command",
+                        lambda client, sid, cmd, **kw: f"out:{cmd}")
+    result = ryotenkai.access_session(mock_client, "4", ["sysinfo", "getuid"])
+    assert result["status"] == "success"
+    assert result["results"] == ["out:sysinfo", "out:getuid"]
+    assert result["final_result"] == "out:getuid"
+
+
+def test_access_session_preserves_partial_output_on_failure(monkeypatch, mock_client):
+    """A read/write failure partway through a command sequence (dead session,
+    RPC error) must not lose the output already collected from prior commands
+    — the failure mode that crashed the whole `run_command` call with no
+    output at all before this fix."""
+    def fake_run(client, sid, cmd, **kw):
+        if cmd == "boom":
+            raise ryotenkai.MsfRpcError("session gone")
+        return f"out:{cmd}"
+
+    monkeypatch.setattr(ryotenkai, "run_session_command", fake_run)
+    result = ryotenkai.access_session(mock_client, "4", ["sysinfo", "boom", "getuid"])
+    assert result["status"] == "error"
+    assert result["results"] == ["out:sysinfo"]
+    assert result["final_result"] == "out:sysinfo"
+    assert result["failed_command"] == "boom"
+    assert "session gone" in result["message"]
+
+
+def test_access_session_no_output_before_first_command_fails(monkeypatch, mock_client):
+    def fake_run(client, sid, cmd, **kw):
+        raise Exception("dead session")
+
+    monkeypatch.setattr(ryotenkai, "run_session_command", fake_run)
+    result = ryotenkai.access_session(mock_client, "4", ["whoami"])
+    assert result["status"] == "error"
+    assert result["results"] == []
+    assert result["final_result"] == ""
+    assert result["failed_command"] == "whoami"
+    assert "dead session" in result["message"]
 
 
 def test_run_console_cmd_returns_output(monkeypatch):

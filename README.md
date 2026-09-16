@@ -91,9 +91,11 @@ The CLI has two modes that share one data layer:
 ### Non-interactive subcommands
 
 ```sh
-# Run any module via a console (run -j) and get structured output
+# Run any module via a console and get structured output
 ryo run_module multi/handler --option LHOST=10.0.0.1 --option LPORT=4444
 #   options accept OPTION=VALUE (preferred) or "OPTION VALUE"
+#   runs foreground (`run`) by default; add --background for a background job (`run -j`)
+ryo run_module multi/handler --option LHOST=10.0.0.1 --option LPORT=4444 --background
 
 # Poll active jobs / sessions (JSON)
 ryo get_jobs

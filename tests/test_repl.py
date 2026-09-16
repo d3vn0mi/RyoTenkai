@@ -23,7 +23,8 @@ def test_prompt_changes_with_module(console):
 def test_use_set_run_builds_options(console, monkeypatch):
     captured = {}
     monkeypatch.setattr(ryotenkai, "run_exploit",
-                        lambda client, mod, opts, regex=None: captured.update(mod=mod, opts=opts)
+                        lambda client, mod, opts, regex=None, background=False:
+                        captured.update(mod=mod, opts=opts, background=background)
                         or {"status": "success", "raw_output": "ok"})
     console.dispatch("use exploit/multi/handler")
     console.dispatch("set LHOST 10.0.0.1")
@@ -31,6 +32,7 @@ def test_use_set_run_builds_options(console, monkeypatch):
     out, keep, action = console.dispatch("run")
     assert captured["mod"] == "exploit/multi/handler"
     assert captured["opts"] == {"LHOST": "10.0.0.1", "LPORT": "4444"}
+    assert captured["background"] is True
     assert keep is True
 
 
