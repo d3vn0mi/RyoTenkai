@@ -126,6 +126,9 @@ def parse_arguments(config):
     run_parser.add_argument(
         '--timeout', type=int, default=int(config.get('timeout', CONSOLE_TIMEOUT)),
         help='Seconds to poll for module console output (config [default] timeout / default %(default)s).')
+    run_parser.add_argument(
+        '--background', action='store_true',
+        help='Run the module as a background job (`run -j`) instead of foreground (`run`, the default).')
     add_rpc_args(run_parser)
 
     # Get jobs
@@ -255,8 +258,18 @@ def _read_session(session, timeout=SESSION_TIMEOUT, interval=POLL_INTERVAL,
 
 
 # Functionality 1: Run any Metasploit module
-def run_exploit(client, module_name, options, regex=None, timeout=CONSOLE_TIMEOUT):
-    """Run a module via a console (`run -j`) and return structured output.
+def run_exploit(client, module_name, options, regex=None, timeout=CONSOLE_TIMEOUT,
+                background=False):
+    """Run a module via a console and return structured output.
+
+    `background` selects msfconsole run semantics:
+      * False (default) -> `run`  : foreground. The console blocks until the
+        module finishes (or `timeout` elapses), so aux/scanner modules return
+        their full output. A session-spawning module (multi/handler, an
+        exploit) will hold the console until it returns or the read times out.
+      * True            -> `run -j`: background job. Returns immediately with
+        "Job N started"; use for handler / web_delivery style modules whose
+        payload/regex output appears without blocking.
 
     `timeout` bounds how long the console output is polled (seconds); slow
     modules (payload staging, `db_nmap`, brute-force aux) can need more than the
@@ -267,7 +280,8 @@ def run_exploit(client, module_name, options, regex=None, timeout=CONSOLE_TIMEOU
         console.write(f"use {module_name}\n")
         for option, value in options.items():
             console.write(f"set {option} {value}\n")
-        console.write("run -j\n")
+        run_cmd = "run -j" if background else "run"
+        console.write(f"{run_cmd}\n")
         output = _read_console(console, timeout=timeout)
 
         filtered_output = None
@@ -324,8 +338,20 @@ def start_rpc_server(rpc_password, rpc_port, rpc_ssl, rpc_user, rpc_server):
 
 
 def make_client(rpc_password, rpc_server, rpc_port, rpc_ssl):
-    """Build a Metasploit RPC client."""
-    return MsfRpcClient(rpc_password, server=rpc_server, port=rpc_port, ssl=rpc_ssl)
+    """Build a Metasploit RPC client.
+
+    decode_error_handling='backslashreplace' makes every RPC read tolerant of
+    non-UTF-8 bytes in target output (Windows console / filesystem text, binary
+    file contents from `type`, CP437/CP1251, etc.). pymetasploit3 decodes every
+    RPC response through utils.convert(); its default 'strict' handler raises
+    UnicodeDecodeError on the first invalid byte, killing the whole command with
+    empty stdout. With 'backslashreplace', valid UTF-8 is decoded exactly and
+    any invalid byte is rendered as a visible \\xNN escape instead of crashing.
+    This is the single choke point for all RPC calls (session read, console /
+    channel -r, jobs, sessions), so setting it here hardens every path at once.
+    """
+    return MsfRpcClient(rpc_password, server=rpc_server, port=rpc_port,
+                        ssl=rpc_ssl, decode_error_handling='backslashreplace')
 
 
 # Functionality 2: Poll active jobs
@@ -441,14 +467,47 @@ def run_session_command(client, session_id, command, timeout=None,
 
 
 def access_session(client, session_id, command_sequence):
-    """Run a sequence of commands in a session; return the final result."""
+    """Run a sequence of commands in a session; return per-command results.
+
+    A read/write failure partway through the sequence (dead session, RPC
+    error, session torn down mid-run) is caught and reported instead of
+    raising: whichever commands already succeeded are still returned in
+    "results", matching the REPL's "report and detach" handling in
+    interact_session — rather than letting the exception propagate to main()
+    and lose every prior command's output along with it (the failure mode
+    behind the original UnicodeDecodeError crash, which lost the whole
+    `run_command` call with no output at all).
+    """
     read_params = _session_read_params(client, session_id)
     results = []
     for command in command_sequence:
-        results.append(run_session_command(client, session_id, command, **read_params))
+        try:
+            results.append(run_session_command(client, session_id, command, **read_params))
+        except MsfRpcError as e:
+            return {
+                "status": "error",
+                "session_id": session_id,
+                "command_sequence": command_sequence,
+                "results": results,
+                "final_result": results[-1] if results else "",
+                "failed_command": command,
+                "message": f"Metasploit RPC error on '{command}': {e}",
+            }
+        except Exception as e:
+            return {
+                "status": "error",
+                "session_id": session_id,
+                "command_sequence": command_sequence,
+                "results": results,
+                "final_result": results[-1] if results else "",
+                "failed_command": command,
+                "message": f"error running '{command}': {e}",
+            }
     return {
+        "status": "success",
         "session_id": session_id,
         "command_sequence": command_sequence,
+        "results": results,
         "final_result": results[-1] if results else "",
     }
 
@@ -776,7 +835,8 @@ class RtkConsole:
     def do_run(self, args):
         if not self.current_module:
             return "[!] no module selected (use <module> first)"
-        result = run_exploit(self.client, self.current_module, dict(self.module_options))
+        result = run_exploit(self.client, self.current_module, dict(self.module_options),
+                             background=True)
         return self._emit(result, format_exploit_result)
 
     def do_back(self, args):
@@ -930,7 +990,8 @@ def main():
         client = make_client(pw, srv, port, ssl)
         options = parse_options(args.option)
         print(json.dumps(run_exploit(client, args.module, options, args.regex,
-                                     timeout=args.timeout), indent=4))
+                                     timeout=args.timeout,
+                                     background=args.background), indent=4))
 
     elif args.command == "get_jobs":
         pw, srv, port, ssl = resolve_conn(args, config)
